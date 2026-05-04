@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__26a81d27-f91e-4ca4-8227-56b145fdd1de__get_project",
+      "mcp__26a81d27-f91e-4ca4-8227-56b145fdd1de__list_tables",
+      "mcp__26a81d27-f91e-4ca4-8227-56b145fdd1de__list_projects",
+      "Bash(npm -v)",
+      "Bash(pnpm -v)",
+      "Bash(bun -v)",
+      "Bash(pnpm create *)"
+    ]
+  }
+}
