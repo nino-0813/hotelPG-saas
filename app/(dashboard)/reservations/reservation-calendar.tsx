@@ -333,6 +333,22 @@ function RoomRow({
   today: Date;
   onCellClick: (date: Date) => void;
 }) {
+  const typeBadgeCls = (() => {
+    switch (room.room_type) {
+      case "family":
+        return "bg-amber-100 text-amber-900";
+      case "single":
+        return "bg-sky-100 text-sky-900";
+      case "washitsu_modern_4":
+        return "bg-violet-100 text-violet-900";
+      case "washitsu_modern_3":
+        return "bg-fuchsia-100 text-fuchsia-900";
+      case "standard":
+      default:
+        return "bg-neutral-100 text-neutral-700";
+    }
+  })();
+
   return (
     <>
       {/* Room label (sticky left) */}
@@ -343,8 +359,15 @@ function RoomRow({
         <div className="text-xs font-medium leading-tight sm:text-sm">
           {room.room_number}
         </div>
-        <div className="text-[9px] leading-tight text-neutral-500 sm:text-[10px]">
-          {roomTypeLabel(room.room_type)}
+        <div className="mt-0.5">
+          <span
+            className={clsx(
+              "inline-flex items-center rounded px-1 py-0.5 text-[9px] font-medium leading-none sm:text-[10px]",
+              typeBadgeCls,
+            )}
+          >
+            {roomTypeLabel(room.room_type)}
+          </span>
         </div>
       </div>
 
