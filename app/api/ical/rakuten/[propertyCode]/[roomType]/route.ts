@@ -17,7 +17,23 @@ function toIcsDate(dateStr: string): string {
   return dateStr.replaceAll("-", "");
 }
 
-function buildCalendar(events: Array<{ dtstart: string; dtend: string }>) {
+function toDtStampUtc(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return (
+    d.getUTCFullYear() +
+    pad(d.getUTCMonth() + 1) +
+    pad(d.getUTCDate()) +
+    "T" +
+    pad(d.getUTCHours()) +
+    pad(d.getUTCMinutes()) +
+    pad(d.getUTCSeconds()) +
+    "Z"
+  );
+}
+
+function buildCalendar(
+  events: Array<{ uid: string; dtstamp: string; dtstart: string; dtend: string }>,
+) {
   const lines: string[] = [];
   lines.push("BEGIN:VCALENDAR");
   lines.push("VERSION:2.0");
@@ -26,6 +42,8 @@ function buildCalendar(events: Array<{ dtstart: string; dtend: string }>) {
 
   for (const e of events) {
     lines.push("BEGIN:VEVENT");
+    lines.push(`UID:${e.uid}`);
+    lines.push(`DTSTAMP:${e.dtstamp}`);
     lines.push("SUMMARY:Booked");
     lines.push(`DTSTART;VALUE=DATE:${e.dtstart}`);
     lines.push(`DTEND;VALUE=DATE:${e.dtend}`);
@@ -86,9 +104,11 @@ export async function GET(
       });
     }
 
+    const dtstamp = toDtStampUtc(new Date());
+
     const { data: reservations, error: resErr } = await supabase
       .from("reservations")
-      .select("check_in_date, check_out_date, status")
+      .select("id, check_in_date, check_out_date, status")
       .in("room_id", roomIds)
       .neq("status", "cancelled")
       .gte("check_out_date", todayStr);
@@ -100,6 +120,8 @@ export async function GET(
 
     const events =
       reservations?.map((r) => ({
+        uid: `reservation-${r.id}@hotelpg`,
+        dtstamp,
         dtstart: toIcsDate(String(r.check_in_date)),
         dtend: toIcsDate(String(r.check_out_date)),
       })) ?? [];
