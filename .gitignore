@@ -33,6 +33,9 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
+# local npm lockfile (repo uses pnpm-lock.yaml)
+package-lock.json
+
 # claude code per-machine local settings
 .claude/settings.local.json
 
