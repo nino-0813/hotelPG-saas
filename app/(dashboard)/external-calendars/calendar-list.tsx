@@ -120,7 +120,6 @@ function AddForm({
       setError(null);
       const result = await addCalendar({
         source: String(formData.get("source") ?? "rakuten_oyado"),
-        external_id: String(formData.get("external_id") ?? "").trim(),
         ics_url: String(formData.get("ics_url") ?? "").trim(),
         property_id: String(formData.get("property_id") ?? ""),
         target_room_type: String(formData.get("target_room_type") ?? "standard") as RoomType,
@@ -192,24 +191,13 @@ function AddForm({
         />
       </Field>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <Field label="管理用ID" hint="例: 楽天 room_groups の番号 (917598)">
-          <input
-            name="external_id"
-            placeholder="917598"
-            required
-            className={inputCls}
-          />
-        </Field>
-
-        <Field label="表示名" hint="管理画面で識別しやすい名前">
-          <input
-            name="display_name"
-            placeholder="HOTEL PG -II- ファミリー"
-            className={inputCls}
-          />
-        </Field>
-      </div>
+      <Field label="表示名" hint="管理画面で識別しやすい名前 (任意)">
+        <input
+          name="display_name"
+          placeholder="例: HOTEL PG -I- ロフト付き洋室"
+          className={inputCls}
+        />
+      </Field>
 
       {error && (
         <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">

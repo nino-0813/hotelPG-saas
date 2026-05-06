@@ -7,19 +7,38 @@ import type { RoomType } from "@/lib/types/database";
 
 export type AddCalendarInput = {
   source: string;
-  external_id: string;
   ics_url: string;
   property_id: string;
   target_room_type: RoomType;
   display_name?: string;
 };
 
+/**
+ * Best-effort extraction of an external_id from the ics URL.
+ * Rakuten Oyado URLs look like /ical/v1/room_groups/917598.ics?s=...
+ * Falls back to the URL pathname when no known pattern matches.
+ */
+function deriveExternalId(icsUrl: string): string {
+  try {
+    const u = new URL(icsUrl);
+    const m = /\/room_groups\/(\d+)/.exec(u.pathname);
+    if (m) return m[1];
+    // generic fallback: pathname (without leading slash)
+    return u.pathname.replace(/^\//, "") || icsUrl;
+  } catch {
+    return icsUrl;
+  }
+}
+
 export async function addCalendar(input: AddCalendarInput) {
   const supabase = await createClient();
+  const ics_url = input.ics_url.trim();
+  const external_id = deriveExternalId(ics_url);
+
   const { error } = await supabase.from("external_calendars").insert({
     source: input.source,
-    external_id: input.external_id.trim(),
-    ics_url: input.ics_url.trim(),
+    external_id,
+    ics_url,
     property_id: input.property_id,
     target_room_type: input.target_room_type,
     display_name: input.display_name?.trim() || null,
