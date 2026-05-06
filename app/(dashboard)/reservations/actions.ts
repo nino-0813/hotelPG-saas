@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { syncAllEnabledCalendars } from "@/lib/ical/sync";
 import type {
   PaymentMethod,
   ReservationStatus,
@@ -151,4 +152,19 @@ export async function assignReservationRoom(input: AssignReservationInput) {
   revalidatePath("/reservations");
   revalidatePath("/tasks");
   return { ok: true };
+}
+
+/**
+ * Safety: sync external calendars before creating manual reservations.
+ * This reduces the chance of double booking due to stale OTA data.
+ */
+export async function syncExternalCalendars() {
+  const supabase = await createClient();
+  const results = await syncAllEnabledCalendars(supabase);
+  revalidatePath("/reservations");
+  revalidatePath("/external-calendars");
+  return {
+    ok: true as const,
+    results,
+  };
 }

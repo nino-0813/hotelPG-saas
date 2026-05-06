@@ -15,6 +15,7 @@ import {
   changeReservationStatus,
   createReservation,
   deleteReservation,
+  syncExternalCalendars,
   updateReservation,
 } from "./actions";
 import { cancelReservation } from "@/app/actions/cancelReservation";
@@ -94,12 +95,18 @@ function NewReservationForm({
   onClose: () => void;
 }) {
   const [pending, startTransition] = useTransition();
+  const [syncing, startSync] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [syncedAt, setSyncedAt] = useState<string | null>(null);
 
   const room = rooms.find((r) => r.id === roomId);
   const property = properties.find((p) => p.id === room?.property_id);
 
   const handleSubmit = (formData: FormData) => {
+    if (!syncedAt) {
+      setError("先に外部カレンダーを同期してください");
+      return;
+    }
     startTransition(async () => {
       setError(null);
       const result = await createReservation({
@@ -124,6 +131,18 @@ function NewReservationForm({
     });
   };
 
+  const handleSync = () => {
+    startSync(async () => {
+      setError(null);
+      try {
+        await syncExternalCalendars();
+        setSyncedAt(new Date().toLocaleString("ja-JP"));
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      }
+    });
+  };
+
   // Default check-out: next day
   const defaultCheckOut = (() => {
     const d = new Date(`${date}T00:00:00`);
@@ -144,6 +163,9 @@ function NewReservationForm({
       />
 
       <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-5">
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          手入力予約の前に「外部カレンダーを同期」して、楽天などの最新予約を取り込んでください（在庫ズレ防止）。
+        </div>
         <Field label="ゲスト名" required>
           <input
             name="guest_name"
@@ -268,10 +290,33 @@ function NewReservationForm({
       </div>
 
       <ModalFooter>
-        <button type="button" onClick={onClose} className={btnSecondary}>
-          キャンセル
-        </button>
-        <button type="submit" disabled={pending} className={btnPrimary}>
+        <div className="flex flex-wrap items-center gap-2 sm:flex-1">
+          <button type="button" onClick={onClose} className={btnSecondary}>
+            キャンセル
+          </button>
+          <button
+            type="button"
+            onClick={handleSync}
+            disabled={syncing}
+            className="rounded-md border border-amber-300 bg-white px-3 py-1.5 text-sm font-medium text-amber-900 hover:bg-amber-50 disabled:opacity-50"
+          >
+            {syncing ? "同期中..." : "🔄 外部カレンダーを同期"}
+          </button>
+          {syncedAt ? (
+            <span className="text-xs text-neutral-500">
+              同期済み: {syncedAt}
+            </span>
+          ) : (
+            <span className="text-xs text-neutral-500">
+              未同期（作成前に同期してください）
+            </span>
+          )}
+        </div>
+        <button
+          type="submit"
+          disabled={pending || syncing || !syncedAt}
+          className={btnPrimary}
+        >
           {pending ? "作成中..." : "予約を作成"}
         </button>
       </ModalFooter>
