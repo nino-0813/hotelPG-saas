@@ -17,6 +17,7 @@ import {
   deleteReservation,
   updateReservation,
 } from "./actions";
+import { cancelReservation } from "@/app/actions/cancelReservation";
 
 export type ModalState =
   | { mode: "closed" }
@@ -313,6 +314,21 @@ function ReservationDetail({
     });
   };
 
+  const handleCancel = () => {
+    if (reservation.status === "cancelled") return;
+    if (!confirm("この予約をキャンセルしますか？")) return;
+    startTransition(async () => {
+      setError(null);
+      try {
+        await cancelReservation(reservation.id);
+        router.refresh();
+        onClose();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      }
+    });
+  };
+
   const handleRestoreFromCancelled = () => {
     if (
       !confirm(
@@ -443,8 +459,7 @@ function ReservationDetail({
             <button
               type="button"
               onClick={() => {
-                if (!confirm("この予約をキャンセルしますか？")) return;
-                handleStatusChange("cancelled");
+                handleCancel();
               }}
               disabled={pending}
               className="rounded-md border border-red-300 bg-white px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50"

@@ -49,6 +49,14 @@ export async function createReservation(input: CreateReservationInput) {
 
   if (error) return { error: error.message };
 
+  if (data?.id) {
+    const { error: logErr } = await supabase.from("reservation_logs").insert({
+      reservation_id: data.id,
+      action: "created",
+    });
+    if (logErr) console.error("[reservation_logs] insert failed", logErr.message);
+  }
+
   revalidatePath("/reservations");
   revalidatePath("/tasks");
   return { ok: true, id: data?.id };

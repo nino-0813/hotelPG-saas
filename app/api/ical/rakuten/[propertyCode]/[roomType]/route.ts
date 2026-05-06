@@ -68,7 +68,10 @@ export async function GET(
     const { propertyCode, roomType } = await params;
     const rt = roomType as RoomType;
     if (!ALLOWED_ROOM_TYPES.includes(rt)) {
-      return new Response("Not found", { status: 404 });
+      const ics = buildCalendar([]);
+      return new NextResponse(ics, {
+        headers: { "Content-Type": "text/calendar" },
+      });
     }
 
     const supabase = await createClient();
@@ -80,7 +83,10 @@ export async function GET(
       .single();
 
     if (propErr || !prop) {
-      return new Response("Not found", { status: 404 });
+      const ics = buildCalendar([]);
+      return new NextResponse(ics, {
+        headers: { "Content-Type": "text/calendar" },
+      });
     }
 
     const { data: rooms, error: roomsErr } = await supabase
@@ -108,10 +114,11 @@ export async function GET(
 
     const { data: reservations, error: resErr } = await supabase
       .from("reservations")
-      .select("id, check_in_date, check_out_date, status")
+      .select("id, check_in_date, check_out_date, status, updated_at")
       .in("room_id", roomIds)
       .neq("status", "cancelled")
-      .gte("check_out_date", todayStr);
+      .gte("check_out_date", todayStr)
+      .order("updated_at", { ascending: false });
 
     if (resErr) {
       console.error("reservations query failed", resErr.message);
