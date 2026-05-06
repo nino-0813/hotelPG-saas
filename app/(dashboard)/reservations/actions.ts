@@ -47,6 +47,10 @@ export async function createReservation(input: CreateReservationInput) {
     .select("id")
     .single();
 
+  console.log("[createReservation] insert result:", { data, error });
+  console.log("[createReservation] insert ok:", !error);
+  console.log("[createReservation] reservation id:", data?.id ?? null);
+
   if (error) return { error: error.message };
 
   if (data?.id) {
