@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createServerClient } from "@supabase/ssr";
 import type { RoomType } from "@/lib/types/database";
 
 export const runtime = "nodejs";
@@ -54,6 +54,15 @@ function buildCalendar(
   return lines.join("\r\n") + "\r\n";
 }
 
+function createServiceRoleSupabase() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !serviceKey) {
+    throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY or NEXT_PUBLIC_SUPABASE_URL");
+  }
+  return createServerClient(url, serviceKey, { cookies: { getAll: () => [], setAll: () => {} } });
+}
+
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ propertyCode: string; roomType: string }> },
@@ -74,13 +83,16 @@ export async function GET(
       });
     }
 
-    const supabase = await createClient();
+    // Use service role for ICS export (route is token-gated; needs to bypass RLS).
+    const supabase = createServiceRoleSupabase();
 
     const { data: prop, error: propErr } = await supabase
       .from("properties")
-      .select("id")
+      .select("id, code, name")
       .eq("code", propertyCode)
       .single();
+
+    console.log("[ical] property result:", { propertyCode, prop, propErr });
 
     if (propErr || !prop) {
       const ics = buildCalendar([]);
@@ -94,6 +106,12 @@ export async function GET(
       .select("id")
       .eq("property_id", prop.id)
       .eq("room_type", rt);
+
+    console.log("[ical] rooms count:", rooms?.length ?? 0, {
+      propertyId: prop.id,
+      roomType: rt,
+      roomsErr,
+    });
 
     if (roomsErr) {
       console.error("rooms query failed", roomsErr.message);
@@ -119,6 +137,12 @@ export async function GET(
       .neq("status", "cancelled")
       .gte("check_out_date", todayStr)
       .order("updated_at", { ascending: false });
+
+    console.log("[ical] reservations count:", reservations?.length ?? 0, {
+      roomIdsCount: roomIds.length,
+      todayStr,
+      resErr,
+    });
 
     if (resErr) {
       console.error("reservations query failed", resErr.message);
