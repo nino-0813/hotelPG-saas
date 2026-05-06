@@ -4,7 +4,9 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import { format } from "date-fns";
 import { ja } from "date-fns/locale";
 import clsx from "clsx";
+import { ROOM_TYPE_LABEL } from "@/lib/room-type-labels";
 import type {
+  ExternalCalendar,
   Property,
   Reservation,
   Room,
@@ -12,11 +14,10 @@ import type {
 } from "@/lib/types/database";
 import { assignReservationRoom } from "./actions";
 
-const ROOM_TYPE_LABEL: Record<RoomType, string> = {
-  family: "ファミリー",
-  single: "シングル",
-  standard: "スタンダード",
-};
+type ExternalCalendarRef = Pick<
+  ExternalCalendar,
+  "id" | "display_name" | "property_id" | "target_room_type"
+>;
 
 type Props = {
   pending: Reservation[];
@@ -24,6 +25,7 @@ type Props = {
   assignedReservations: Reservation[];
   rooms: Room[];
   properties: Property[];
+  externalCalendars: ExternalCalendarRef[];
 };
 
 export function PendingAssignments({
@@ -31,9 +33,31 @@ export function PendingAssignments({
   assignedReservations,
   rooms,
   properties,
+  externalCalendars,
 }: Props) {
   const [open, setOpen] = useState(false);
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [target, setTarget] = useState<Reservation | null>(null);
+
+  const grouped = useMemo(
+    () => buildPendingGroups(pending, properties, externalCalendars),
+    [pending, properties, externalCalendars],
+  );
+
+  useEffect(() => {
+    if (!open) setExpandedSections(new Set());
+  }, [open]);
+
+  function toggleSection(label: string) {
+    setExpandedSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(label)) next.delete(label);
+      else next.add(label);
+      return next;
+    });
+  }
 
   if (pending.length === 0) return null;
 
@@ -55,68 +79,91 @@ export function PendingAssignments({
 
         {open && (
           <div className="divide-y divide-amber-200 border-t border-amber-200 bg-white">
-            {pending.map((r) => {
-              const property = properties.find(
-                (p) => p.id === r.requested_property_id,
-              );
+            {grouped.map(({ label, reservations }) => {
+              const sectionOpen = expandedSections.has(label);
               return (
-                <div
-                  key={r.id}
-                  className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:gap-4"
+              <section key={label} className="divide-y divide-amber-100">
+                <button
+                  type="button"
+                  onClick={() => toggleSection(label)}
+                  className="sticky top-0 z-[1] flex w-full items-start justify-between gap-2 bg-amber-100/90 px-4 py-2 text-left backdrop-blur-sm hover:bg-amber-200/70"
                 >
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-sm font-semibold">
-                        {r.guest_name}
-                      </span>
-                      <span className="text-xs text-neutral-500">
-                        {r.guest_count}名
-                      </span>
-                      {r.external_source && (
-                        <span className="rounded bg-neutral-900 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-white">
-                          {sourceLabel(r.external_source)}
-                        </span>
-                      )}
-                      {r.requested_room_type && (
-                        <span className="rounded bg-neutral-100 px-1.5 py-0.5 text-[10px] font-medium text-neutral-700">
-                          {ROOM_TYPE_LABEL[r.requested_room_type] ??
-                            r.requested_room_type}
-                        </span>
-                      )}
-                    </div>
-                    <div className="mt-1 flex flex-wrap gap-x-3 text-xs text-neutral-600">
-                      <span>
-                        🏨 {property?.name ?? "?"}
-                      </span>
-                      <span>
-                        📅{" "}
-                        {format(
-                          new Date(`${r.check_in_date}T00:00:00`),
-                          "M/d (EEE)",
-                          { locale: ja },
-                        )}{" "}
-                        →{" "}
-                        {format(
-                          new Date(`${r.check_out_date}T00:00:00`),
-                          "M/d (EEE)",
-                          { locale: ja },
-                        )}
-                      </span>
-                    </div>
-                    {r.special_notes && (
-                      <div className="mt-1 whitespace-pre-line text-[11px] text-neutral-500">
-                        {r.special_notes}
-                      </div>
-                    )}
+                  <div className="min-w-0">
+                    <h3 className="text-xs font-semibold tracking-tight text-amber-950">
+                      {label}
+                    </h3>
+                    <p className="text-[11px] text-amber-800">
+                      {reservations.length}件
+                    </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setTarget(r)}
-                    className="shrink-0 rounded-md bg-neutral-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-neutral-800"
-                  >
-                    部屋とキー番号を割り当てる
-                  </button>
-                </div>
+                  <span className="shrink-0 pt-0.5 text-[11px] text-amber-800">
+                    {sectionOpen ? "閉じる ▲" : "開く ▼"}
+                  </span>
+                </button>
+                {sectionOpen &&
+                  reservations.map((r) => {
+                  const property = properties.find(
+                    (p) => p.id === r.requested_property_id,
+                  );
+                  return (
+                    <div
+                      key={r.id}
+                      className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:gap-4"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-semibold">
+                            {r.guest_name}
+                          </span>
+                          <span className="text-xs text-neutral-500">
+                            {r.guest_count}名
+                          </span>
+                          {r.external_source && (
+                            <span className="rounded bg-neutral-900 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-white">
+                              {sourceLabel(r.external_source)}
+                            </span>
+                          )}
+                          {r.requested_room_type && (
+                            <span className="rounded bg-neutral-100 px-1.5 py-0.5 text-[10px] font-medium text-neutral-700">
+                              {ROOM_TYPE_LABEL[r.requested_room_type] ??
+                                r.requested_room_type}
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-1 flex flex-wrap gap-x-3 text-xs text-neutral-600">
+                          <span>🏨 {property?.name ?? "?"}</span>
+                          <span>
+                            📅{" "}
+                            {format(
+                              new Date(`${r.check_in_date}T00:00:00`),
+                              "M/d (EEE)",
+                              { locale: ja },
+                            )}{" "}
+                            →{" "}
+                            {format(
+                              new Date(`${r.check_out_date}T00:00:00`),
+                              "M/d (EEE)",
+                              { locale: ja },
+                            )}
+                          </span>
+                        </div>
+                        {r.special_notes && (
+                          <div className="mt-1 whitespace-pre-line text-[11px] text-neutral-500">
+                            {r.special_notes}
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setTarget(r)}
+                        className="shrink-0 rounded-md bg-neutral-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-neutral-800"
+                      >
+                        部屋とキー番号を割り当てる
+                      </button>
+                    </div>
+                  );
+                })}
+              </section>
               );
             })}
           </div>
@@ -396,6 +443,70 @@ function AssignmentModal({
       </div>
     </div>
   );
+}
+
+const ROOM_TYPE_SORT: Record<RoomType, number> = {
+  single: 0,
+  standard: 1,
+  family: 2,
+  washitsu_modern_4: 3,
+  washitsu_modern_3: 4,
+};
+
+function buildPendingGroups(
+  pending: Reservation[],
+  properties: Property[],
+  externalCalendars: ExternalCalendarRef[],
+): { label: string; reservations: Reservation[] }[] {
+  const calById = new Map(externalCalendars.map((c) => [c.id, c]));
+  const propById = new Map(properties.map((p) => [p.id, p]));
+
+  function sectionLabel(r: Reservation): string {
+    if (r.external_calendar_id) {
+      const cal = calById.get(r.external_calendar_id);
+      const dn = cal?.display_name?.trim();
+      if (dn) return dn;
+    }
+    const prop = r.requested_property_id
+      ? propById.get(r.requested_property_id)
+      : undefined;
+    const pname = prop?.name ?? "物件未設定";
+    if (r.requested_room_type) {
+      const tl =
+        ROOM_TYPE_LABEL[r.requested_room_type] ?? r.requested_room_type;
+      return `${pname}・${tl}タイプ`;
+    }
+    return pname;
+  }
+
+  function sortTuple(r: Reservation): [number, number, string] {
+    const prop = r.requested_property_id
+      ? propById.get(r.requested_property_id)
+      : undefined;
+    const po = prop?.display_order ?? 999;
+    const rt = r.requested_room_type
+      ? ROOM_TYPE_SORT[r.requested_room_type]
+      : 9;
+    return [po, rt, sectionLabel(r)];
+  }
+
+  const byLabel = new Map<string, Reservation[]>();
+  for (const r of pending) {
+    const lab = sectionLabel(r);
+    const arr = byLabel.get(lab) ?? [];
+    arr.push(r);
+    byLabel.set(lab, arr);
+  }
+
+  return [...byLabel.entries()]
+    .sort((a, b) => {
+      const ta = sortTuple(a[1][0]);
+      const tb = sortTuple(b[1][0]);
+      if (ta[0] !== tb[0]) return ta[0] - tb[0];
+      if (ta[1] !== tb[1]) return ta[1] - tb[1];
+      return ta[2].localeCompare(tb[2], "ja");
+    })
+    .map(([label, reservations]) => ({ label, reservations }));
 }
 
 function sourceLabel(source: string) {

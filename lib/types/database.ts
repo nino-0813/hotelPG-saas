@@ -1,4 +1,11 @@
-export type RoomType = "family" | "single" | "standard";
+export type RoomType =
+  | "family"
+  | "single"
+  | "standard"
+  /** HOTEL PG-III 楽天プラン別（和モダン 最大4名） */
+  | "washitsu_modern_4"
+  /** HOTEL PG-III 楽天プラン別（和モダン 最大3名・長期滞在） */
+  | "washitsu_modern_3";
 export type StaffRole = "admin" | "staff";
 export type PaymentMethod = "online" | "onsite";
 export type ReservationStatus =

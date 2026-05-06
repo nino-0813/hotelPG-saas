@@ -10,6 +10,7 @@ import type {
   ReservationStatus,
   Room,
 } from "@/lib/types/database";
+import { roomTypeLabel } from "@/lib/room-type-labels";
 import { ReservationModal, type ModalState } from "./reservation-modal";
 
 // Sizes are driven by CSS custom properties so they can flex per breakpoint
@@ -82,7 +83,7 @@ export function ReservationCalendar({
   return (
     <div
       className={clsx(
-        "overflow-auto bg-white shadow-sm",
+        "max-w-full min-w-0 overflow-auto bg-white shadow-sm",
         // Constrain height so vertical scrolling happens INSIDE the calendar.
         // This makes property/date headers sticky against the calendar's own scroll
         // — they remain visible while scrolling through rooms.
@@ -94,7 +95,7 @@ export function ReservationCalendar({
         "sm:rounded-md sm:border sm:border-neutral-200",
         "sm:[--cal-cell:88px] sm:[--cal-header:48px] sm:[--cal-label:200px] sm:[--cal-row:52px]",
       )}
-      style={{ overscrollBehavior: "contain" }}
+      style={{ overscrollBehaviorX: "contain", overscrollBehaviorY: "auto" }}
     >
       <div
         className="relative grid"
@@ -156,7 +157,6 @@ export function ReservationCalendar({
               today={today}
               roomRowMap={roomRowMap}
               propHeaderRow={propHeaderRow}
-              days={days}
               onCellClick={openNewModal}
             />
           );
@@ -212,7 +212,6 @@ function PropertyGroup({
   today,
   roomRowMap,
   propHeaderRow,
-  days,
   onCellClick,
 }: {
   property: Property;
@@ -221,22 +220,19 @@ function PropertyGroup({
   today: Date;
   roomRowMap: Map<string, number>;
   propHeaderRow: number | null;
-  days: number;
   onCellClick: (roomId: string, date: Date) => void;
 }) {
   if (rooms.length === 0 || propHeaderRow === null) return null;
 
   return (
     <>
-      {/* Property header row (sticky on BOTH axes:
-          left:0 keeps the title visible on horizontal scroll,
-          top:var(--cal-header) keeps it visible just under the date header on vertical scroll) */}
+      {/* Label column only — spans entire grid breaks sticky left when scrolled horizontally */}
       <div
-        className="sticky left-0 z-20 flex items-center border-b border-neutral-200 bg-neutral-100 px-3 text-xs font-semibold uppercase tracking-wide text-neutral-700"
+        className="sticky left-0 z-20 flex items-center border-b border-r border-neutral-200 bg-neutral-100 px-3 text-xs font-semibold uppercase tracking-wide text-neutral-700"
         style={{
           top: "var(--cal-header)",
           gridRow: propHeaderRow,
-          gridColumn: `1 / ${days + 2}`,
+          gridColumn: 1,
           height: PROPERTY_HEADER_HEIGHT,
         }}
       >
@@ -245,6 +241,18 @@ function PropertyGroup({
           {rooms.length}部屋
         </span>
       </div>
+      {dates.map((d, i) => (
+        <div
+          key={`${property.id}-${format(d, "yyyy-MM-dd")}`}
+          className="border-b border-r border-neutral-200 bg-neutral-100"
+          style={{
+            gridRow: propHeaderRow,
+            gridColumn: i + 2,
+            height: PROPERTY_HEADER_HEIGHT,
+          }}
+          aria-hidden
+        />
+      ))}
 
       {/* Room rows */}
       {rooms.map((room) => {
@@ -390,17 +398,6 @@ function colorForStatus(status: ReservationStatus): {
         color: "bg-red-50 text-red-600 line-through",
         border: "border-red-200",
       };
-  }
-}
-
-function roomTypeLabel(type: Room["room_type"]) {
-  switch (type) {
-    case "family":
-      return "ファミリー";
-    case "single":
-      return "シングル";
-    case "standard":
-      return "スタンダード";
   }
 }
 

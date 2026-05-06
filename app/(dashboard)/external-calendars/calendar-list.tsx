@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { format } from "date-fns";
 import clsx from "clsx";
+import { ROOM_TYPE_LABEL, ROOM_TYPES_ORDERED } from "@/lib/room-type-labels";
 import type {
   ExternalCalendar,
   Property,
@@ -25,12 +26,6 @@ const SOURCE_LABEL: Record<string, string> = {
   rakuten_oyado: "楽天お宿",
   booking_com: "Booking.com",
   airbnb: "Airbnb",
-};
-
-const ROOM_TYPE_LABEL: Record<RoomType, string> = {
-  family: "ファミリー",
-  single: "シングル",
-  standard: "スタンダード",
 };
 
 export function CalendarList({ properties, calendars }: Props) {
@@ -171,9 +166,11 @@ function AddForm({
           className={inputCls}
           defaultValue="standard"
         >
-          <option value="standard">スタンダード</option>
-          <option value="family">ファミリー</option>
-          <option value="single">シングル</option>
+          {ROOM_TYPES_ORDERED.map((value) => (
+            <option key={value} value={value}>
+              {ROOM_TYPE_LABEL[value]}
+            </option>
+          ))}
         </select>
       </Field>
 

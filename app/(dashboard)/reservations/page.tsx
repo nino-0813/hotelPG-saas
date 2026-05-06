@@ -1,6 +1,11 @@
 import { addDays, format } from "date-fns";
 import { createClient } from "@/lib/supabase/server";
-import type { Property, Reservation, Room } from "@/lib/types/database";
+import type {
+  ExternalCalendar,
+  Property,
+  Reservation,
+  Room,
+} from "@/lib/types/database";
 import { PendingAssignments } from "./pending-assignments";
 import { ReservationCalendar } from "./reservation-calendar";
 
@@ -25,6 +30,7 @@ export default async function ReservationsPage({
     { data: rooms },
     { data: reservations },
     { data: pending },
+    { data: externalCalendars },
   ] = await Promise.all([
     supabase
       .from("properties")
@@ -51,10 +57,19 @@ export default async function ReservationsPage({
       .is("room_id", null)
       .order("check_in_date", { ascending: true })
       .returns<Reservation[]>(),
+    supabase
+      .from("external_calendars")
+      .select("id, display_name, property_id, target_room_type")
+      .returns<
+        Pick<
+          ExternalCalendar,
+          "id" | "display_name" | "property_id" | "target_room_type"
+        >[]
+      >(),
   ]);
 
   return (
-    <main className="px-4 py-4 sm:px-6 sm:py-6">
+    <main className="min-w-0 max-w-full px-4 py-4 sm:px-6 sm:py-6">
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">予約一覧</h1>
@@ -71,9 +86,10 @@ export default async function ReservationsPage({
         assignedReservations={reservations ?? []}
         rooms={rooms ?? []}
         properties={properties ?? []}
+        externalCalendars={externalCalendars ?? []}
       />
 
-      <div className="-mx-4 sm:mx-0">
+      <div className="-mx-4 min-w-0 sm:mx-0">
         <ReservationCalendar
           properties={properties ?? []}
           rooms={rooms ?? []}

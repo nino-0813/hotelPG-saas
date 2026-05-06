@@ -12,6 +12,7 @@ import type {
   RoomStatusValue,
   Task,
 } from "@/lib/types/database";
+import { roomTypeLabel } from "@/lib/room-type-labels";
 import { updateRoomStatus } from "./actions";
 
 const STATUS_ORDER: RoomStatusValue[] = [
@@ -358,13 +359,3 @@ function ReservationLine({
   );
 }
 
-function roomTypeLabel(type: Room["room_type"]) {
-  switch (type) {
-    case "family":
-      return "ファミリー";
-    case "single":
-      return "シングル";
-    case "standard":
-      return "スタンダード";
-  }
-}

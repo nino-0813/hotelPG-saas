@@ -25,7 +25,7 @@ export default async function DashboardLayout({
   const displayName = staffRow?.display_name ?? user.email;
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="flex min-h-screen min-w-0 flex-col overflow-x-hidden">
       <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b border-neutral-200 bg-white px-4 sm:px-6">
         <div className="flex items-center gap-3 md:gap-6">
           <Link href="/" className="text-base font-semibold tracking-tight">
@@ -57,7 +57,7 @@ export default async function DashboardLayout({
       </header>
 
       {/* Bottom padding (pb-20) on mobile reserves space for the bottom nav */}
-      <div className="flex-1 pb-20 md:pb-0">{children}</div>
+      <div className="min-w-0 flex-1 pb-20 md:pb-0">{children}</div>
 
       <MobileBottomNav />
     </div>

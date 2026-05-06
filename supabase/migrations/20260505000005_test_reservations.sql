@@ -3,8 +3,8 @@
 -- 流すと約2週間ぶんの予約データが入って、カレンダー画面が埋まります。
 --
 -- 削除したいとき:
---   delete from public.reservations where source = 'demo';
---   (タスクは ON DELETE CASCADE で消えます)
+--   supabase/cleanup_demo_reservations.sql を SQL Editor で実行
+--  （または: delete from public.reservations where source = 'demo';）
 -- ============================================================
 
 with picks as (
