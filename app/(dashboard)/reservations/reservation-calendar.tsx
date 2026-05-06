@@ -136,8 +136,8 @@ export function ReservationCalendar({
         // Mobile reserves: site header(56) + page title(~80) + bottom nav(~90) + padding(~16) ≈ 240px
         // Desktop reserves: site header(56) + page title(~80) + padding(~16) ≈ 160px
         "max-h-[calc(100dvh-240px)] sm:max-h-[calc(100dvh-160px)]",
-        // Mobile: compact grid / rows so more fits on screen; sm: desktop sizes.
-        "[--cal-cell:52px] [--cal-header:36px] [--cal-label:78px] [--cal-row:40px] [--cal-prop-header:26px]",
+        // Mobile: compact grid, but keep label wide enough for long property titles.
+        "[--cal-cell:52px] [--cal-header:36px] [--cal-label:160px] [--cal-row:40px] [--cal-prop-header:44px]",
         "sm:rounded-md sm:border sm:border-neutral-200",
         "sm:[--cal-cell:88px] sm:[--cal-header:48px] sm:[--cal-label:200px] sm:[--cal-row:52px] sm:[--cal-prop-header:32px]",
       )}
@@ -272,7 +272,7 @@ function PropertyGroup({
     <>
       {/* Label column only — spans entire grid breaks sticky left when scrolled horizontally */}
       <div
-        className="sticky left-0 z-20 flex items-center border-b border-r border-neutral-200 bg-neutral-100 px-2 text-[11px] font-semibold uppercase tracking-wide text-neutral-700 sm:px-3 sm:text-xs"
+        className="sticky left-0 z-20 flex items-center border-b border-r border-neutral-200 bg-neutral-100 px-2 text-[11px] font-semibold text-neutral-700 sm:px-3 sm:text-xs sm:uppercase sm:tracking-wide"
         style={{
           top: "var(--cal-header)",
           gridRow: propHeaderRow,
@@ -280,10 +280,14 @@ function PropertyGroup({
           height: "var(--cal-prop-header)",
         }}
       >
-        {title}
-        <span className="ml-1.5 text-[9px] font-normal normal-case text-neutral-500 sm:ml-2 sm:text-[10px]">
-          {rooms.length}部屋
-        </span>
+        <div className="min-w-0 leading-tight">
+          <div className="whitespace-normal break-words">
+            {title}
+          </div>
+          <div className="mt-0.5 text-[9px] font-normal normal-case text-neutral-500 sm:text-[10px]">
+            {rooms.length}部屋
+          </div>
+        </div>
       </div>
       {dates.map((d, i) => (
         <div
