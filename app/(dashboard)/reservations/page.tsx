@@ -23,6 +23,10 @@ export default async function ReservationsPage({
   const days = Math.min(Math.max(Number(daysParam) || 14, 7), 31);
   const endDate = addDays(startDate, days);
 
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todayStr = format(today, "yyyy-MM-dd");
+
   const supabase = await createClient();
 
   const [
@@ -55,6 +59,7 @@ export default async function ReservationsPage({
       .select("*")
       .neq("status", "cancelled")
       .is("room_id", null)
+      .gte("check_out_date", todayStr)
       .order("check_in_date", { ascending: true })
       .returns<Reservation[]>(),
     supabase

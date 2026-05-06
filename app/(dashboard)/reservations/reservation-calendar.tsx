@@ -13,10 +13,6 @@ import type {
 import { roomTypeLabel } from "@/lib/room-type-labels";
 import { ReservationModal, type ModalState } from "./reservation-modal";
 
-// Sizes are driven by CSS custom properties so they can flex per breakpoint
-// (set via Tailwind arbitrary properties on the calendar root).
-const PROPERTY_HEADER_HEIGHT = 32;
-
 type Props = {
   properties: Property[];
   rooms: Room[];
@@ -90,10 +86,10 @@ export function ReservationCalendar({
         // Mobile reserves: site header(56) + page title(~80) + bottom nav(~90) + padding(~16) ≈ 240px
         // Desktop reserves: site header(56) + page title(~80) + padding(~16) ≈ 160px
         "max-h-[calc(100dvh-240px)] sm:max-h-[calc(100dvh-160px)]",
-        // Mobile-first sizes; sm: bumps back to desktop sizes.
-        "[--cal-cell:60px] [--cal-header:44px] [--cal-label:96px] [--cal-row:48px]",
+        // Mobile: compact grid / rows so more fits on screen; sm: desktop sizes.
+        "[--cal-cell:52px] [--cal-header:36px] [--cal-label:78px] [--cal-row:40px] [--cal-prop-header:26px]",
         "sm:rounded-md sm:border sm:border-neutral-200",
-        "sm:[--cal-cell:88px] sm:[--cal-header:48px] sm:[--cal-label:200px] sm:[--cal-row:52px]",
+        "sm:[--cal-cell:88px] sm:[--cal-header:48px] sm:[--cal-label:200px] sm:[--cal-row:52px] sm:[--cal-prop-header:32px]",
       )}
       style={{ overscrollBehaviorX: "contain", overscrollBehaviorY: "auto" }}
     >
@@ -107,7 +103,7 @@ export function ReservationCalendar({
       >
         {/* Top-left corner */}
         <div
-          className="sticky top-0 left-0 z-30 flex items-center border-b border-r border-neutral-200 bg-neutral-50 px-3 text-xs font-medium text-neutral-600"
+          className="sticky top-0 left-0 z-30 flex items-center border-b border-r border-neutral-200 bg-neutral-50 px-2 text-[11px] font-medium text-neutral-600 sm:px-3 sm:text-xs"
           style={{ gridRow: 1, gridColumn: 1 }}
         >
           部屋
@@ -121,7 +117,7 @@ export function ReservationCalendar({
             <div
               key={d.toISOString()}
               className={clsx(
-                "sticky top-0 z-20 flex flex-col items-center justify-center border-b border-r border-neutral-200 text-xs",
+                "sticky top-0 z-20 flex flex-col items-center justify-center border-b border-r border-neutral-200 text-[11px] leading-tight sm:text-xs sm:leading-normal",
                 isToday
                   ? "bg-amber-50 font-semibold text-amber-900"
                   : "bg-neutral-50",
@@ -131,7 +127,7 @@ export function ReservationCalendar({
               style={{ gridRow: 1, gridColumn: i + 2 }}
             >
               <span>{format(d, "M/d", { locale: ja })}</span>
-              <span className="text-[10px] text-neutral-500">
+              <span className="text-[9px] text-neutral-500 sm:text-[10px]">
                 {format(d, "EEE", { locale: ja })}
               </span>
             </div>
@@ -228,16 +224,16 @@ function PropertyGroup({
     <>
       {/* Label column only — spans entire grid breaks sticky left when scrolled horizontally */}
       <div
-        className="sticky left-0 z-20 flex items-center border-b border-r border-neutral-200 bg-neutral-100 px-3 text-xs font-semibold uppercase tracking-wide text-neutral-700"
+        className="sticky left-0 z-20 flex items-center border-b border-r border-neutral-200 bg-neutral-100 px-2 text-[11px] font-semibold uppercase tracking-wide text-neutral-700 sm:px-3 sm:text-xs"
         style={{
           top: "var(--cal-header)",
           gridRow: propHeaderRow,
           gridColumn: 1,
-          height: PROPERTY_HEADER_HEIGHT,
+          height: "var(--cal-prop-header)",
         }}
       >
         {property.name}
-        <span className="ml-2 text-[10px] font-normal normal-case text-neutral-500">
+        <span className="ml-1.5 text-[9px] font-normal normal-case text-neutral-500 sm:ml-2 sm:text-[10px]">
           {rooms.length}部屋
         </span>
       </div>
@@ -248,7 +244,7 @@ function PropertyGroup({
           style={{
             gridRow: propHeaderRow,
             gridColumn: i + 2,
-            height: PROPERTY_HEADER_HEIGHT,
+            height: "var(--cal-prop-header)",
           }}
           aria-hidden
         />
@@ -289,10 +285,10 @@ function RoomRow({
     <>
       {/* Room label (sticky left) */}
       <div
-        className="sticky left-0 z-[15] flex flex-col justify-center border-b border-r border-neutral-200 bg-white px-2 sm:px-3"
+        className="sticky left-0 z-[15] flex flex-col justify-center border-b border-r border-neutral-200 bg-white px-1.5 sm:px-3"
         style={{ gridRow: row, gridColumn: 1, height: "var(--cal-row)" }}
       >
-        <div className="text-sm font-medium leading-tight">
+        <div className="text-xs font-medium leading-tight sm:text-sm">
           {room.room_number}
         </div>
         <div className="text-[9px] leading-tight text-neutral-500 sm:text-[10px]">
@@ -346,7 +342,8 @@ function ReservationBlock({
       type="button"
       onClick={onClick}
       className={clsx(
-        "z-10 m-1 flex cursor-pointer items-center gap-1.5 overflow-hidden rounded-md px-2 py-1 text-left text-xs shadow-sm transition hover:scale-[1.01] hover:shadow-md",
+        "z-10 flex cursor-pointer items-center gap-1 overflow-hidden rounded px-1.5 py-0.5 text-left text-[10px] shadow-sm transition sm:m-1 sm:gap-1.5 sm:rounded-md sm:px-2 sm:py-1 sm:text-xs",
+        "hover:shadow-md sm:hover:scale-[1.01]",
         color,
         border,
         "border",
@@ -359,17 +356,17 @@ function ReservationBlock({
       title={tooltipText(reservation)}
     >
       {isOnsite ? (
-        <span className="rounded bg-orange-200 px-1 text-[9px] font-semibold text-orange-900">
+        <span className="rounded bg-orange-200 px-0.5 text-[8px] font-semibold text-orange-900 sm:px-1 sm:text-[9px]">
           現
         </span>
       ) : null}
       {hasNotes ? (
-        <span className="rounded bg-red-200 px-1 text-[9px] font-semibold text-red-900">
+        <span className="rounded bg-red-200 px-0.5 text-[8px] font-semibold text-red-900 sm:px-1 sm:text-[9px]">
           !
         </span>
       ) : null}
-      <span className="truncate font-medium">{reservation.guest_name}</span>
-      <span className="ml-auto whitespace-nowrap text-[10px] text-neutral-600">
+      <span className="min-w-0 truncate font-medium">{reservation.guest_name}</span>
+      <span className="ml-auto shrink-0 whitespace-nowrap text-[9px] text-neutral-600 sm:text-[10px]">
         {reservation.guest_count}名
       </span>
     </button>

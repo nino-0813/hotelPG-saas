@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { format } from "date-fns";
 import clsx from "clsx";
 import type {
@@ -292,6 +293,7 @@ function ReservationDetail({
   properties: Property[];
   onClose: () => void;
 }) {
+  const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -304,7 +306,31 @@ function ReservationDetail({
       setError(null);
       const result = await changeReservationStatus(reservation.id, status);
       if (result.error) setError(result.error);
-      else if (status === "cancelled") onClose();
+      else {
+        router.refresh();
+        if (status === "cancelled") onClose();
+      }
+    });
+  };
+
+  const handleRestoreFromCancelled = () => {
+    if (
+      !confirm(
+        "キャンセルを取り消し、予約を「確認済み」に戻します。カレンダーにも再表示されます。よろしいですか？",
+      )
+    )
+      return;
+    startTransition(async () => {
+      setError(null);
+      const result = await changeReservationStatus(
+        reservation.id,
+        "confirmed",
+      );
+      if (result.error) setError(result.error);
+      else {
+        router.refresh();
+        onClose();
+      }
     });
   };
 
@@ -314,7 +340,10 @@ function ReservationDetail({
       setError(null);
       const result = await deleteReservation(reservation.id);
       if (result.error) setError(result.error);
-      else onClose();
+      else {
+        router.refresh();
+        onClose();
+      }
     });
   };
 
@@ -344,6 +373,12 @@ function ReservationDetail({
 
       <div className="space-y-3 px-4 py-4 text-sm sm:px-6 sm:py-5">
         <StatusRow status={reservation.status} />
+
+        {reservation.status === "cancelled" ? (
+          <p className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            カレンダーには表示されません。誤ってキャンセルした場合は「予約を復元」で確認済みに戻せます。
+          </p>
+        ) : null}
 
         <Row label="ゲスト">{reservation.guest_name}</Row>
         <Row label="電話">{reservation.guest_phone ?? "—"}</Row>
@@ -414,18 +449,28 @@ function ReservationDetail({
               disabled={pending}
               className="rounded-md border border-red-300 bg-white px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50"
             >
-              キャンセル
+              予約をキャンセル
             </button>
           )}
           {reservation.status === "cancelled" && (
-            <button
-              type="button"
-              onClick={handleDelete}
-              disabled={pending}
-              className="rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700"
-            >
-              完全に削除
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={handleRestoreFromCancelled}
+                disabled={pending}
+                className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700"
+              >
+                予約を復元
+              </button>
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={pending}
+                className="rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700"
+              >
+                完全に削除
+              </button>
+            </>
           )}
         </div>
         <button
