@@ -139,7 +139,7 @@ export function ReservationCalendar({
         // Mobile: compact grid, but keep label wide enough for long property titles.
         "[--cal-cell:52px] [--cal-header:36px] [--cal-label:160px] [--cal-row:40px] [--cal-prop-header:44px]",
         "sm:rounded-md sm:border sm:border-neutral-200",
-        "sm:[--cal-cell:88px] sm:[--cal-header:48px] sm:[--cal-label:200px] sm:[--cal-row:52px] sm:[--cal-prop-header:32px]",
+        "sm:[--cal-cell:88px] sm:[--cal-header:48px] sm:[--cal-label:200px] sm:[--cal-row:52px] sm:[--cal-prop-header:44px]",
       )}
       style={{ overscrollBehaviorX: "contain", overscrollBehaviorY: "auto" }}
     >
@@ -272,7 +272,7 @@ function PropertyGroup({
     <>
       {/* Label column only — spans entire grid breaks sticky left when scrolled horizontally */}
       <div
-        className="sticky left-0 z-20 flex items-center border-b border-r border-neutral-200 bg-neutral-100 px-2 text-[11px] font-semibold text-neutral-700 sm:px-3 sm:text-xs sm:uppercase sm:tracking-wide"
+        className="sticky left-0 z-20 flex items-center border-b border-r border-neutral-200 bg-neutral-100 px-2 text-[11px] font-semibold text-neutral-700 sm:px-3 sm:text-sm sm:uppercase sm:tracking-wide"
         style={{
           top: "var(--cal-header)",
           gridRow: propHeaderRow,
