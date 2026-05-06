@@ -78,6 +78,7 @@ export async function syncOneCalendar(
 
   const incomingUids = new Set(parsed.map((p) => p.uid));
   let imported = 0;
+  let firstUpsertError: string | null = null;
 
   for (const ev of parsed) {
     const noteParts = [
@@ -116,7 +117,7 @@ export async function syncOneCalendar(
       .upsert(payload, { onConflict: "external_uid" });
 
     if (upsertErr) {
-      // Continue with others even if one fails
+      if (!firstUpsertError) firstUpsertError = upsertErr.message;
       console.error("upsert failed", ev.uid, upsertErr.message);
       continue;
     }
@@ -140,18 +141,32 @@ export async function syncOneCalendar(
     if (!cancelErr) cancelled = count ?? missingUids.length;
   }
 
+  const upsertAllFailed =
+    parsed.length > 0 && imported === 0 && firstUpsertError !== null;
+
   await supabase
     .from("external_calendars")
     .update({
       last_synced_at: new Date().toISOString(),
-      last_sync_status: "success",
-      last_sync_error: null,
+      last_sync_status: upsertAllFailed ? "error" : "success",
+      last_sync_error:
+        upsertAllFailed && firstUpsertError
+          ? firstUpsertError.slice(0, 500)
+          : null,
       last_sync_imported: imported,
       last_sync_cancelled: cancelled,
     })
     .eq("id", calendarId);
 
-  return { calendarId, ok: true, imported, cancelled };
+  return {
+    calendarId,
+    ok: !upsertAllFailed,
+    imported,
+    cancelled,
+    ...(upsertAllFailed && firstUpsertError
+      ? { error: firstUpsertError }
+      : {}),
+  };
 }
 
 export async function syncAllEnabledCalendars(
