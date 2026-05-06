@@ -1,7 +1,8 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import { cache } from "react";
 
-export async function createClient() {
+async function createSupabaseServerClient() {
   const cookieStore = await cookies();
 
   return createServerClient(
@@ -25,3 +26,19 @@ export async function createClient() {
     },
   );
 }
+
+/** One Supabase server client per React server request (avoids duplicate cookie/client setup). */
+export const createClient = cache(createSupabaseServerClient);
+
+/**
+ * One auth.getUser() per request when layout + page both need the user.
+ * Middleware still runs its own getUser first — this removes duplicate Auth calls in RSC trees.
+ */
+export const getCachedSupabaseAuth = cache(async () => {
+  const supabase = await createClient();
+  const {
+    data: { user },
+    error,
+  } = await supabase.auth.getUser();
+  return { supabase, user: error ? null : user };
+});

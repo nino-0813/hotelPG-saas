@@ -1,6 +1,9 @@
 import { addDays, endOfDay, format, startOfDay } from "date-fns";
 import { ja } from "date-fns/locale";
-import { createClient } from "@/lib/supabase/server";
+import {
+  createClient,
+  getCachedSupabaseAuth,
+} from "@/lib/supabase/server";
 import type {
   PaymentMethod,
   Property,
@@ -41,11 +44,7 @@ export default async function TasksPage({
   const statusFilter = params.status ?? "active";
   const mineOnly = params.mine === "1";
 
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { supabase, user } = await getCachedSupabaseAuth();
 
   const now = new Date();
   const today = startOfDay(now);

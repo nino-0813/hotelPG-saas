@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { getCachedSupabaseAuth } from "@/lib/supabase/server";
 import type {
   ExternalCalendar,
   Property,
@@ -7,11 +7,7 @@ import type {
 import { CalendarList } from "./calendar-list";
 
 export default async function ExternalCalendarsPage() {
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { supabase, user } = await getCachedSupabaseAuth();
   if (!user) redirect("/login");
 
   const { data: staffRow } = await supabase

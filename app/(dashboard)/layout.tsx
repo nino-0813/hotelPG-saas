@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { getCachedSupabaseAuth } from "@/lib/supabase/server";
 import { logout } from "@/app/login/actions";
 import { DesktopNav, MobileBottomNav } from "./nav";
 
@@ -9,10 +9,7 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { supabase, user } = await getCachedSupabaseAuth();
 
   if (!user) redirect("/login");
 
