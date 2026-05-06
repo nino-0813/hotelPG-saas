@@ -21,12 +21,28 @@ export async function cancelReservation(reservationId: string): Promise<true> {
     return true;
   }
 
-  const { error } = await supabase
+  const { data: updateData, error: updateError } = await supabase
     .from("reservations")
     .update({ status: "cancelled" })
-    .eq("id", id);
+    .eq("id", id)
+    .select("id, status")
+    .single();
 
-  if (error) throw new Error(error.message);
+  console.log("[cancelReservation] update result:", updateData);
+  console.log("[cancelReservation] update error:", updateError);
+
+  if (updateError) throw new Error(updateError.message);
+  if (updateData?.status !== "cancelled") {
+    throw new Error("cancelReservation failed: status was not updated");
+  }
+
+  const { data: after, error: afterErr } = await supabase
+    .from("reservations")
+    .select("status")
+    .eq("id", id)
+    .single();
+  console.log("[cancelReservation] status after update:", after?.status ?? null);
+  if (afterErr) console.error("[cancelReservation] select after update failed", afterErr.message);
 
   const { error: logErr } = await supabase.from("reservation_logs").insert({
     reservation_id: id,
