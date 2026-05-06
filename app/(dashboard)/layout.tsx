@@ -31,7 +31,7 @@ export default async function DashboardLayout({
           <Link href="/" className="text-base font-semibold tracking-tight">
             HotelPG
           </Link>
-          <DesktopNav />
+          <DesktopNav isAdmin={staffRow?.role === "admin"} />
         </div>
         <div className="flex items-center gap-2 text-sm">
           <span className="hidden max-w-[160px] truncate text-neutral-500 sm:inline">

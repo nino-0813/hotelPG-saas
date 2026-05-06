@@ -173,6 +173,7 @@ export function ReservationCalendar({
 
         {/* Reservation blocks */}
         {reservations.map((r) => {
+          if (!r.room_id) return null;
           const row = roomRowMap.get(r.room_id);
           if (!row) return null;
           const checkIn = new Date(`${r.check_in_date}T00:00:00`);

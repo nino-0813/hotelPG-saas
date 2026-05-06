@@ -83,14 +83,16 @@ export function RoomStatusBoard({
 
   const currentByRoom = useMemo(() => {
     const m = new Map<string, Reservation>();
-    for (const r of currentReservations) m.set(r.room_id, r);
+    for (const r of currentReservations) {
+      if (r.room_id) m.set(r.room_id, r);
+    }
     return m;
   }, [currentReservations]);
 
   const upcomingByRoom = useMemo(() => {
     const m = new Map<string, Reservation>();
     for (const r of upcomingReservations) {
-      if (!m.has(r.room_id)) m.set(r.room_id, r);
+      if (r.room_id && !m.has(r.room_id)) m.set(r.room_id, r);
     }
     return m;
   }, [upcomingReservations]);

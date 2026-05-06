@@ -40,7 +40,7 @@ export type Staff = {
 
 export type Reservation = {
   id: string;
-  room_id: string;
+  room_id: string | null;
   guest_name: string;
   guest_phone: string | null;
   guest_count: number;
@@ -53,6 +53,31 @@ export type Reservation = {
   special_notes: string | null;
   source: string | null;
   status: ReservationStatus;
+  external_uid: string | null;
+  external_source: string | null;
+  external_calendar_id: string | null;
+  requested_property_id: string | null;
+  requested_room_type: RoomType | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ExternalCalendarSource = "rakuten_oyado" | "booking_com" | "airbnb";
+
+export type ExternalCalendar = {
+  id: string;
+  source: ExternalCalendarSource | string;
+  external_id: string;
+  ics_url: string;
+  property_id: string;
+  target_room_type: RoomType;
+  display_name: string | null;
+  enabled: boolean;
+  last_synced_at: string | null;
+  last_sync_status: "success" | "error" | null;
+  last_sync_error: string | null;
+  last_sync_imported: number;
+  last_sync_cancelled: number;
   created_at: string;
   updated_at: string;
 };

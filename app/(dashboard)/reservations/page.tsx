@@ -1,6 +1,7 @@
 import { addDays, format } from "date-fns";
 import { createClient } from "@/lib/supabase/server";
 import type { Property, Reservation, Room } from "@/lib/types/database";
+import { PendingAssignments } from "./pending-assignments";
 import { ReservationCalendar } from "./reservation-calendar";
 
 type SearchParams = Promise<{ start?: string; days?: string }>;
@@ -19,26 +20,38 @@ export default async function ReservationsPage({
 
   const supabase = await createClient();
 
-  const [{ data: properties }, { data: rooms }, { data: reservations }] =
-    await Promise.all([
-      supabase
-        .from("properties")
-        .select("*")
-        .order("display_order", { ascending: true })
-        .returns<Property[]>(),
-      supabase
-        .from("rooms")
-        .select("*")
-        .order("display_order", { ascending: true })
-        .returns<Room[]>(),
-      supabase
-        .from("reservations")
-        .select("*")
-        .neq("status", "cancelled")
-        .lt("check_in_date", format(endDate, "yyyy-MM-dd"))
-        .gte("check_out_date", format(startDate, "yyyy-MM-dd"))
-        .returns<Reservation[]>(),
-    ]);
+  const [
+    { data: properties },
+    { data: rooms },
+    { data: reservations },
+    { data: pending },
+  ] = await Promise.all([
+    supabase
+      .from("properties")
+      .select("*")
+      .order("display_order", { ascending: true })
+      .returns<Property[]>(),
+    supabase
+      .from("rooms")
+      .select("*")
+      .order("display_order", { ascending: true })
+      .returns<Room[]>(),
+    supabase
+      .from("reservations")
+      .select("*")
+      .neq("status", "cancelled")
+      .not("room_id", "is", null)
+      .lt("check_in_date", format(endDate, "yyyy-MM-dd"))
+      .gte("check_out_date", format(startDate, "yyyy-MM-dd"))
+      .returns<Reservation[]>(),
+    supabase
+      .from("reservations")
+      .select("*")
+      .neq("status", "cancelled")
+      .is("room_id", null)
+      .order("check_in_date", { ascending: true })
+      .returns<Reservation[]>(),
+  ]);
 
   return (
     <main className="px-4 py-4 sm:px-6 sm:py-6">
@@ -52,6 +65,13 @@ export default async function ReservationsPage({
         </div>
         <DateRangeNav startDate={startDate} days={days} />
       </div>
+
+      <PendingAssignments
+        pending={pending ?? []}
+        assignedReservations={reservations ?? []}
+        rooms={rooms ?? []}
+        properties={properties ?? []}
+      />
 
       <div className="-mx-4 sm:mx-0">
         <ReservationCalendar

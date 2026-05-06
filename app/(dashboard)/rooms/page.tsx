@@ -39,6 +39,7 @@ export default async function RoomsPage() {
       .lte("check_in_date", today)
       .gte("check_out_date", today)
       .neq("status", "cancelled")
+      .not("room_id", "is", null)
       .returns<Reservation[]>(),
     supabase
       .from("reservations")
@@ -46,6 +47,7 @@ export default async function RoomsPage() {
       .gt("check_in_date", today)
       .lte("check_in_date", weekLater)
       .neq("status", "cancelled")
+      .not("room_id", "is", null)
       .order("check_in_date")
       .returns<Reservation[]>(),
     supabase

@@ -111,3 +111,32 @@ export async function deleteReservation(id: string) {
   revalidatePath("/tasks");
   return { ok: true };
 }
+
+export type AssignReservationInput = {
+  id: string;
+  room_id: string;
+  smart_key_code?: string;
+  special_notes?: string;
+};
+
+/**
+ * Assign a room and key code to a pending (room_id = NULL) reservation.
+ * The DB trigger fires task generation as soon as room_id transitions to a value.
+ */
+export async function assignReservationRoom(input: AssignReservationInput) {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("reservations")
+    .update({
+      room_id: input.room_id,
+      smart_key_code: input.smart_key_code?.trim() || null,
+      special_notes: input.special_notes?.trim() || null,
+    })
+    .eq("id", input.id);
+
+  if (error) return { error: error.message };
+
+  revalidatePath("/reservations");
+  revalidatePath("/tasks");
+  return { ok: true };
+}

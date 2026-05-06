@@ -10,12 +10,16 @@ const NAV_ITEMS = [
   { href: "/reservations", label: "予約", icon: "📅" },
 ] as const;
 
+const ADMIN_NAV_ITEMS = [
+  { href: "/external-calendars", label: "外部連携" },
+] as const;
+
 function isActive(pathname: string, href: string) {
   if (href === "/") return pathname === "/";
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-export function DesktopNav() {
+export function DesktopNav({ isAdmin = false }: { isAdmin?: boolean }) {
   const pathname = usePathname();
   return (
     <nav className="hidden items-center gap-1 text-sm md:flex">
@@ -36,6 +40,24 @@ export function DesktopNav() {
           </Link>
         );
       })}
+      {isAdmin &&
+        ADMIN_NAV_ITEMS.map((item) => {
+          const active = isActive(pathname, item.href);
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={clsx(
+                "rounded-md px-3 py-1.5 transition",
+                active
+                  ? "bg-neutral-100 font-medium text-neutral-900"
+                  : "text-neutral-500 hover:bg-neutral-50 hover:text-neutral-900",
+              )}
+            >
+              {item.label}
+            </Link>
+          );
+        })}
     </nav>
   );
 }
