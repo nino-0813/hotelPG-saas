@@ -54,21 +54,71 @@ export function ReservationCalendar({
     return t;
   }, []);
 
-  // Build grid row map: room id -> grid row index (1-based, accounting for date header & property headers)
-  const { roomRowMap, totalRows } = useMemo(() => {
+  type RoomGroup = {
+    key: string;
+    title: string;
+    property: Property;
+    rooms: Room[];
+  };
+
+  const { roomGroups, roomRowMap, totalRows } = useMemo(() => {
     const map = new Map<string, number>();
+    const groups: RoomGroup[] = [];
     let row = 2; // row 1 = date header
+
     for (const p of properties) {
-      row++; // property header row
-      const propRooms = rooms
+      const propRoomsAll = rooms
         .filter((r) => r.property_id === p.id)
         .sort((a, b) => a.display_order - b.display_order);
-      for (const r of propRooms) {
+
+      // PG-III only: split into two clearer groups (4名×1 / 3名×9)
+      if (p.code === "PG3") {
+        // Make this robust even if room_type hasn't been migrated yet:
+        // take the first room as "最大4名" and the rest as "最大3名".
+        const g4 = propRoomsAll.slice(0, 1);
+        const g3 = propRoomsAll.slice(1);
+
+        const ordered: Array<{ key: string; title: string; rooms: Room[] }> = [
+          {
+            key: `${p.id}-max4`,
+            title: `${p.name} / 和モダン 最大4名（セミダブル）`,
+            rooms: g4,
+          },
+          {
+            key: `${p.id}-max3`,
+            title: `${p.name} / 和モダン 最大3名（長期滞在歓迎）`,
+            rooms: g3,
+          },
+        ];
+
+        for (const g of ordered) {
+          if (g.rooms.length === 0) continue;
+          row++; // header row per group
+          groups.push({ key: g.key, title: g.title, property: p, rooms: g.rooms });
+          for (const r of g.rooms) {
+            map.set(r.id, row);
+            row++;
+          }
+        }
+        continue;
+      }
+
+      // Default: one group per property
+      if (propRoomsAll.length === 0) continue;
+      row++; // property header row
+      groups.push({
+        key: p.id,
+        title: p.name,
+        property: p,
+        rooms: propRoomsAll,
+      });
+      for (const r of propRoomsAll) {
         map.set(r.id, row);
         row++;
       }
     }
-    return { roomRowMap: map, totalRows: row - 1 };
+
+    return { roomGroups: groups, roomRowMap: map, totalRows: row - 1 };
   }, [properties, rooms]);
 
   const colForDate = (date: Date) => {
@@ -135,20 +185,16 @@ export function ReservationCalendar({
         })}
 
         {/* Property + room rows */}
-        {properties.map((p) => {
-          const propRooms = rooms
-            .filter((r) => r.property_id === p.id)
-            .sort((a, b) => a.display_order - b.display_order);
-
-          const propHeaderRow = roomRowMap.get(propRooms[0]?.id ?? "")
-            ? roomRowMap.get(propRooms[0]!.id)! - 1
+        {roomGroups.map((g) => {
+          const propHeaderRow = roomRowMap.get(g.rooms[0]?.id ?? "")
+            ? roomRowMap.get(g.rooms[0]!.id)! - 1
             : null;
-
           return (
             <PropertyGroup
-              key={p.id}
-              property={p}
-              rooms={propRooms}
+              key={g.key}
+              title={g.title}
+              property={g.property}
+              rooms={g.rooms}
               dates={dates}
               today={today}
               roomRowMap={roomRowMap}
@@ -202,6 +248,7 @@ export function ReservationCalendar({
 }
 
 function PropertyGroup({
+  title,
   property,
   rooms,
   dates,
@@ -210,6 +257,7 @@ function PropertyGroup({
   propHeaderRow,
   onCellClick,
 }: {
+  title: string;
   property: Property;
   rooms: Room[];
   dates: Date[];
@@ -232,7 +280,7 @@ function PropertyGroup({
           height: "var(--cal-prop-header)",
         }}
       >
-        {property.name}
+        {title}
         <span className="ml-1.5 text-[9px] font-normal normal-case text-neutral-500 sm:ml-2 sm:text-[10px]">
           {rooms.length}部屋
         </span>
