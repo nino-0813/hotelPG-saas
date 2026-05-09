@@ -126,6 +126,12 @@ export function ReservationCalendar({
     return Math.max(0, Math.min(days, diff)) + 2; // +2: col 1 is label, +1 to convert to 1-based grid
   };
 
+  const density = (() => {
+    if (days <= 7) return "comfortable" as const;
+    if (days >= 31) return "compact" as const;
+    return "standard" as const;
+  })();
+
   return (
     <div
       className={clsx(
@@ -136,10 +142,20 @@ export function ReservationCalendar({
         // Mobile reserves: site header(56) + page title(~80) + bottom nav(~90) + padding(~16) ≈ 240px
         // Desktop reserves: site header(56) + page title(~80) + padding(~16) ≈ 160px
         "max-h-[calc(100dvh-240px)] sm:max-h-[calc(100dvh-160px)]",
-        // Mobile: compact grid, but keep label wide enough for long property titles.
+        // Mobile base grid
         "[--cal-cell:52px] [--cal-header:36px] [--cal-label:160px] [--cal-row:40px] [--cal-prop-header:44px]",
+        // Range-based density tuning (7d: bigger, 31d: tighter)
+        density === "comfortable" &&
+          "[--cal-cell:64px] [--cal-label:170px] [--cal-row:44px]",
+        density === "compact" &&
+          "[--cal-cell:44px] [--cal-label:140px] [--cal-row:36px] [--cal-header:32px]",
         "sm:rounded-md sm:border sm:border-neutral-200",
+        // Desktop base grid
         "sm:[--cal-cell:88px] sm:[--cal-header:48px] sm:[--cal-label:200px] sm:[--cal-row:52px] sm:[--cal-prop-header:44px]",
+        density === "comfortable" &&
+          "sm:[--cal-cell:112px] sm:[--cal-label:240px] sm:[--cal-row:60px]",
+        density === "compact" &&
+          "sm:[--cal-cell:64px] sm:[--cal-label:180px] sm:[--cal-row:44px] sm:[--cal-header:40px]",
       )}
       style={{ overscrollBehaviorX: "contain", overscrollBehaviorY: "auto" }}
     >
@@ -177,9 +193,11 @@ export function ReservationCalendar({
               style={{ gridRow: 1, gridColumn: i + 2 }}
             >
               <span>{format(d, "M/d", { locale: ja })}</span>
-              <span className="text-[9px] text-neutral-500 sm:text-[10px]">
-                {format(d, "EEE", { locale: ja })}
-              </span>
+              {density !== "compact" ? (
+                <span className="text-[9px] text-neutral-500 sm:text-[10px]">
+                  {format(d, "EEE", { locale: ja })}
+                </span>
+              ) : null}
             </div>
           );
         })}

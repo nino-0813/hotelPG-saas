@@ -374,7 +374,16 @@ function buildCheckInBodyPG2(args: {
   ].join("\n");
 }
 
-export async function sendCheckInEmail(reservationId: string) {
+type CheckInEmailDraft = {
+  to: string;
+  subject: string;
+  body: string;
+  from: string;
+};
+
+async function buildCheckInEmailDraft(
+  reservationId: string,
+): Promise<{ draft?: CheckInEmailDraft; error?: string }> {
   const supabase = await createClient();
   const { data: r, error } = await supabase
     .from("reservations")
@@ -407,14 +416,32 @@ export async function sendCheckInEmail(reservationId: string) {
           smartKeyCode: r.smart_key_code,
         });
 
+  return {
+    draft: {
+      to: r.guest_email,
+      subject,
+      body,
+      from,
+    },
+  };
+}
+
+export async function getCheckInEmailDraft(reservationId: string) {
+  return await buildCheckInEmailDraft(reservationId);
+}
+
+export async function sendCheckInEmail(reservationId: string) {
+  const draftRes = await buildCheckInEmailDraft(reservationId);
+  if (draftRes.error || !draftRes.draft) return { error: draftRes.error ?? "メールを作成できません" };
+
   const token = await getGmailAccessToken();
   if ("error" in token) return { error: token.error };
 
   const raw = buildCheckInEmail({
-    to: r.guest_email,
-    subject,
-    body,
-    from: from === "me" ? "me" : from,
+    to: draftRes.draft.to,
+    subject: draftRes.draft.subject,
+    body: draftRes.draft.body,
+    from: draftRes.draft.from === "me" ? "me" : draftRes.draft.from,
   });
 
   const sendRes = await fetch(

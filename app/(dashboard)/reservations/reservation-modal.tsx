@@ -15,6 +15,7 @@ import {
   changeReservationStatus,
   createReservation,
   deleteReservation,
+  getCheckInEmailDraft,
   sendCheckInEmail,
   syncExternalCalendars,
   updateReservation,
@@ -344,7 +345,12 @@ function ReservationDetail({
   const [editing, setEditing] = useState(false);
   const [pending, startTransition] = useTransition();
   const [sending, startSend] = useTransition();
+  const [draftPending, startDraft] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [emailDraft, setEmailDraft] = useState<
+    | null
+    | { to: string; subject: string; body: string; from: string }
+  >(null);
 
   const room = rooms.find((r) => r.id === reservation.room_id);
   const property = properties.find((p) => p.id === room?.property_id);
@@ -411,11 +417,23 @@ function ReservationDetail({
   };
 
   const handleSendCheckInEmail = () => {
+    startDraft(async () => {
+      setError(null);
+      const res = await getCheckInEmailDraft(reservation.id);
+      if (res?.error) setError(res.error);
+      else if (res?.draft) setEmailDraft(res.draft);
+    });
+  };
+
+  const handleConfirmSend = () => {
     startSend(async () => {
       setError(null);
       const result = await sendCheckInEmail(reservation.id);
       if (result?.error) setError(result.error);
-      else router.refresh();
+      else {
+        setEmailDraft(null);
+        router.refresh();
+      }
     });
   };
 
@@ -433,6 +451,51 @@ function ReservationDetail({
 
   return (
     <div>
+      {emailDraft ? (
+        <div
+          className="fixed inset-0 z-[60] flex bg-black/40 sm:items-center sm:justify-center sm:px-4 sm:py-8"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setEmailDraft(null);
+          }}
+        >
+          <div className="h-full w-full overflow-auto bg-white shadow-xl sm:h-auto sm:max-h-full sm:max-w-2xl sm:rounded-lg">
+            <div className="border-b border-neutral-200 px-4 py-3 sm:px-6">
+              <div className="text-sm font-semibold">送信内容の確認</div>
+              <div className="mt-0.5 text-xs text-neutral-500">
+                この内容でチェックインメールを送信します
+              </div>
+            </div>
+            <div className="space-y-3 px-4 py-4 text-sm sm:px-6 sm:py-5">
+              <Row label="宛先">{emailDraft.to}</Row>
+              <Row label="件名">{emailDraft.subject}</Row>
+              <Row label="本文">
+                <pre className="whitespace-pre-wrap rounded-md border border-neutral-200 bg-neutral-50 p-3 text-[12px] leading-relaxed">
+                  {emailDraft.body}
+                </pre>
+              </Row>
+            </div>
+            <div className="sticky bottom-0 flex flex-wrap items-center justify-end gap-2 border-t border-neutral-200 bg-neutral-50 px-4 py-3 sm:px-6">
+              <button
+                type="button"
+                onClick={() => setEmailDraft(null)}
+                disabled={sending}
+                className={btnSecondary}
+              >
+                戻る
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmSend}
+                disabled={sending}
+                className="rounded-md bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-neutral-800 disabled:opacity-50"
+              >
+                {sending ? "送信中..." : "送信"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <ModalHeader
         title="予約詳細"
         subtitle={
@@ -495,7 +558,7 @@ function ReservationDetail({
           <button
             type="button"
             onClick={handleSendCheckInEmail}
-            disabled={pending || sending || !reservation.guest_email}
+            disabled={pending || sending || draftPending || !reservation.guest_email}
             className="rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-neutral-50 disabled:opacity-50"
             title={
               reservation.guest_email
@@ -503,7 +566,7 @@ function ReservationDetail({
                 : "メールアドレスがないため送信できません"
             }
           >
-            {sending ? "送信中..." : "チェックインメール送信"}
+            {draftPending ? "作成中..." : "チェックインメール送信"}
           </button>
           {reservation.status === "confirmed" && (
             <button
