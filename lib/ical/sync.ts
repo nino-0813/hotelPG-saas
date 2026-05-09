@@ -9,6 +9,29 @@ export type SyncResult = {
   error?: string;
 };
 
+function deriveSmartKeyCodeFromPhone(phone: string | null): string | null {
+  if (!phone) return null;
+  const normalized = phone
+    .replace(/[０-９]/g, (ch) =>
+      String.fromCharCode(ch.charCodeAt(0) - 0xff10 + 0x30),
+    )
+    .replace(/[‐‑‒–—―ー−]/g, "-");
+  const digits = normalized.replace(/\D/g, "");
+  if (digits.length < 4) return null;
+  return digits.slice(-4);
+}
+
+function deriveSmartKeyCodeFallback(seed: string): string {
+  // Stable 4-digit code derived from seed (reservation_code or external UID).
+  // Intent: deterministic across re-sync; avoids 0000; slight "Porno/Innosima" flavor via multiplier.
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) {
+    hash = (hash * 39 + seed.charCodeAt(i)) % 100000; // 39 as a fixed factor
+  }
+  const n = (hash % 9000) + 1000; // 1000-9999
+  return String(n).padStart(4, "0");
+}
+
 /**
  * Fetch one external calendar, upsert reservations matched by external_uid,
  * and mark missing UIDs as cancelled.
@@ -65,13 +88,14 @@ export async function syncOneCalendar(
   // Existing reservations imported from this calendar (so we can detect deletions)
   const { data: existing } = await supabase
     .from("reservations")
-    .select("id, external_uid, status")
+    .select("id, external_uid, status, room_id")
     .eq("external_calendar_id", calendarId);
 
   const existingMap = new Map(
     (existing ?? [])
-      .filter((r): r is { id: string; external_uid: string; status: string } =>
-        Boolean(r.external_uid),
+      .filter(
+        (r): r is { id: string; external_uid: string; status: string; room_id: string | null } =>
+          Boolean(r.external_uid),
       )
       .map((r) => [r.external_uid, r]),
   );
@@ -80,7 +104,42 @@ export async function syncOneCalendar(
   let imported = 0;
   let firstUpsertError: string | null = null;
 
+  const { data: roomsAll } = await supabase
+    .from("rooms")
+    .select("id, property_id, room_type, display_order")
+    .eq("property_id", cal.property_id)
+    .eq("room_type", cal.target_room_type)
+    .order("display_order", { ascending: true });
+
   for (const ev of parsed) {
+    const existingRow = existingMap.get(ev.uid);
+    const existingReservationId = existingRow?.id ?? null;
+    const pinnedRoomId = existingRow?.room_id ?? null;
+    const smartKeyCode =
+      deriveSmartKeyCodeFromPhone(ev.guest_phone) ??
+      deriveSmartKeyCodeFallback(ev.reservation_code ?? ev.uid);
+
+    let assignedRoomId: string | null = pinnedRoomId;
+    if (!assignedRoomId) {
+      const candidateRoomIds = (roomsAll ?? []).map((r) => r.id);
+      let occupiedRoomIds = new Set<string>();
+      if (candidateRoomIds.length > 0) {
+        let q = supabase
+          .from("reservations")
+          .select("room_id")
+          .neq("status", "cancelled")
+          .in("room_id", candidateRoomIds)
+          .lt("check_in_date", ev.check_out_date)
+          .gt("check_out_date", ev.check_in_date);
+        if (existingReservationId) q = q.neq("id", existingReservationId);
+        const { data: overlaps } = await q.returns<{ room_id: string }[]>();
+        occupiedRoomIds = new Set<string>((overlaps ?? []).map((r) => r.room_id));
+      }
+
+      const candidate = (roomsAll ?? []).find((r) => !occupiedRoomIds.has(r.id));
+      assignedRoomId = candidate?.id ?? null;
+    }
+
     const noteParts = [
       ev.reservation_code ? `予約コード: ${ev.reservation_code}` : null,
       ev.property_label ? `プラン: ${ev.property_label}` : null,
@@ -93,20 +152,23 @@ export async function syncOneCalendar(
       .join("\n");
 
     const payload = {
-      // No room_id: pending assignment
+      // room_id: keep existing assignment, otherwise auto-assign if available
+      room_id: assignedRoomId,
       external_uid: ev.uid,
       external_source: cal.source,
       external_calendar_id: cal.id,
       requested_property_id: cal.property_id,
       requested_room_type: cal.target_room_type,
       guest_name: ev.guest_name,
+      guest_phone: ev.guest_phone,
+      guest_email: ev.guest_email,
       guest_count: ev.guest_count,
       check_in_date: ev.check_in_date,
       check_out_date: ev.check_out_date,
       check_in_time: "15:00",
       check_out_time: "11:00",
       payment_method: "online" as const,
-      smart_key_code: null,
+      smart_key_code: smartKeyCode,
       special_notes: noteParts || null,
       source: cal.source,
       status: "confirmed" as const,

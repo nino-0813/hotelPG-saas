@@ -13,37 +13,37 @@ insert into public.properties (code, name, display_order) values
   ('PG3', 'HOTEL PG -III-', 3)
 on conflict (code) do nothing;
 
--- PG1: 4 rooms (standard)
+-- PG1: 4 rooms (standard) - A/B/C/D
 insert into public.rooms (property_id, room_number, room_type, display_order)
 select p.id, r.room_number, 'standard', r.ord
 from public.properties p
 cross join (values
-  ('101', 1), ('102', 2), ('103', 3), ('104', 4)
+  ('A', 1), ('B', 2), ('C', 3), ('D', 4)
 ) as r(room_number, ord)
 where p.code = 'PG1'
 on conflict (property_id, room_number) do nothing;
 
--- PG2: 5 rooms (3 family + 2 single)
+-- PG2: 5 rooms (family: A/B/E, single: C/D)
 insert into public.rooms (property_id, room_number, room_type, display_order)
 select p.id, r.room_number, r.room_type, r.ord
 from public.properties p
 cross join (values
-  ('201', 'family', 1),
-  ('202', 'family', 2),
-  ('203', 'family', 3),
-  ('204', 'single', 4),
-  ('205', 'single', 5)
+  ('A', 'family', 1),
+  ('B', 'family', 2),
+  ('E', 'family', 3),
+  ('C', 'single', 4),
+  ('D', 'single', 5)
 ) as r(room_number, room_type, ord)
 where p.code = 'PG2'
 on conflict (property_id, room_number) do nothing;
 
--- PG3: 10 rooms (standard)
+-- PG3: 10 rooms (standard) - A..J (room_type は別migrationでプラン別に更新)
 insert into public.rooms (property_id, room_number, room_type, display_order)
 select p.id, r.room_number, 'standard', r.ord
 from public.properties p
 cross join (values
-  ('301',  1), ('302',  2), ('303',  3), ('304',  4), ('305',  5),
-  ('306',  6), ('307',  7), ('308',  8), ('309',  9), ('310', 10)
+  ('A',  1), ('B',  2), ('C',  3), ('D',  4), ('E',  5),
+  ('F',  6), ('G',  7), ('H',  8), ('I',  9), ('J', 10)
 ) as r(room_number, ord)
 where p.code = 'PG3'
 on conflict (property_id, room_number) do nothing;

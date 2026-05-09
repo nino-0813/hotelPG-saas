@@ -15,6 +15,7 @@ import {
   changeReservationStatus,
   createReservation,
   deleteReservation,
+  sendCheckInEmail,
   syncExternalCalendars,
   updateReservation,
 } from "./actions";
@@ -342,6 +343,7 @@ function ReservationDetail({
   const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [pending, startTransition] = useTransition();
+  const [sending, startSend] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
   const room = rooms.find((r) => r.id === reservation.room_id);
@@ -408,6 +410,15 @@ function ReservationDetail({
     });
   };
 
+  const handleSendCheckInEmail = () => {
+    startSend(async () => {
+      setError(null);
+      const result = await sendCheckInEmail(reservation.id);
+      if (result?.error) setError(result.error);
+      else router.refresh();
+    });
+  };
+
   if (editing) {
     return (
       <EditReservationForm
@@ -443,6 +454,7 @@ function ReservationDetail({
 
         <Row label="ゲスト">{reservation.guest_name}</Row>
         <Row label="電話">{reservation.guest_phone ?? "—"}</Row>
+        <Row label="メール">{reservation.guest_email ?? "—"}</Row>
         <Row label="人数">{reservation.guest_count}名</Row>
         <Row label="チェックイン">
           {reservation.check_in_date} {reservation.check_in_time?.slice(0, 5)}
@@ -480,6 +492,19 @@ function ReservationDetail({
 
       <ModalFooter>
         <div className="flex flex-wrap gap-2 sm:flex-1">
+          <button
+            type="button"
+            onClick={handleSendCheckInEmail}
+            disabled={pending || sending || !reservation.guest_email}
+            className="rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-neutral-50 disabled:opacity-50"
+            title={
+              reservation.guest_email
+                ? "チェックイン案内メールを送信"
+                : "メールアドレスがないため送信できません"
+            }
+          >
+            {sending ? "送信中..." : "チェックインメール送信"}
+          </button>
           {reservation.status === "confirmed" && (
             <button
               type="button"

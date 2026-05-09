@@ -3,6 +3,8 @@ import * as ical from "node-ical";
 export type ParsedReservation = {
   uid: string;
   guest_name: string;
+  guest_phone: string | null;
+  guest_email: string | null;
   reservation_code: string | null;
   check_in_date: string; // YYYY-MM-DD
   check_out_date: string; // YYYY-MM-DD
@@ -38,6 +40,8 @@ export function parseIcs(icsText: string): ParsedReservation[] {
     const summary = String(ev.summary ?? "");
     const description = unfoldDescription(String(ev.description ?? ""));
     const desc = parseDescription(description);
+    const guestPhone = extractGuestPhone(desc, description);
+    const guestEmail = normalizeEmail(desc.EMAIL) ?? extractEmailFromText(description);
 
     // SUMMARY: "Lauw Felicia(V036-YTTXVICE)"
     const sumMatch = /^(.+?)(?:\(([\w-]+)\))?$/.exec(summary.trim());
@@ -69,6 +73,8 @@ export function parseIcs(icsText: string): ParsedReservation[] {
     events.push({
       uid: String(ev.uid),
       guest_name: guestName,
+      guest_phone: guestPhone,
+      guest_email: guestEmail,
       reservation_code: reservationCode,
       check_in_date: checkInDate,
       check_out_date: checkOutDate,
@@ -97,13 +103,88 @@ function parseDescription(text: string): Record<string, string> {
   for (const rawLine of text.split("\n")) {
     const line = rawLine.trim();
     if (!line) continue;
+    // Some sources use full-width colon "："
     const colon = line.indexOf(":");
-    if (colon === -1) continue;
-    const key = line.slice(0, colon).trim();
-    const value = line.slice(colon + 1).trim();
+    const zColon = colon === -1 ? line.indexOf("：") : -1;
+    const idx = colon !== -1 ? colon : zColon;
+    if (idx === -1) continue;
+    const key = line.slice(0, idx).trim();
+    const value = line.slice(idx + 1).trim();
     if (key && !(key in result)) result[key] = value;
   }
   return result;
+}
+
+function extractGuestPhone(
+  desc: Record<string, string>,
+  fullText: string,
+): string | null {
+  const candidates: Array<string | undefined> = [
+    desc.TEL,
+    desc.TELEPHONE,
+    desc.PHONE,
+    desc.PHONENUMBER,
+    desc.GUESTPHONE,
+    desc.GUEST_PHONE,
+    desc.CONTACT,
+    desc["電話"],
+    desc["電話番号"],
+    desc["TEL番号"],
+  ];
+  for (const c of candidates) {
+    const p = normalizePhoneCandidate(c);
+    if (p) return p;
+  }
+
+  // Look through parsed keys for anything phone-ish.
+  for (const [k, v] of Object.entries(desc)) {
+    if (!v) continue;
+    if (!/(tel|phone|電話)/i.test(k)) continue;
+    const p = normalizePhoneCandidate(v);
+    if (p) return p;
+  }
+
+  // Fallback: find something phone-like in the DESCRIPTION body.
+  // Example matches: "+81 90-1234-5678", "090-1234-5678", "03-1234-5678"
+  const normalizedBody = normalizePhoneText(fullText);
+  const m = /(\+?\d[\d\s\-()]{7,}\d)/.exec(normalizedBody);
+  const fallback = normalizePhoneCandidate(m?.[1]);
+  return fallback;
+}
+
+function normalizePhoneText(s: string): string {
+  // Convert full-width digits and common punctuation to ASCII
+  return (
+    s
+      .replace(/[０-９]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xff10 + 0x30))
+      // common dash variants → hyphen
+      .replace(/[‐‑‒–—―ー−]/g, "-")
+      // full-width parentheses
+      .replace(/[（]/g, "(")
+      .replace(/[）]/g, ")")
+  );
+}
+
+function normalizeEmail(input: string | undefined): string | null {
+  const raw = (input ?? "").trim();
+  if (!raw) return null;
+  const oneLine = raw.replace(/\s+/g, "");
+  return oneLine.includes("@") ? oneLine : null;
+}
+
+function extractEmailFromText(text: string): string | null {
+  const oneLine = String(text ?? "").replace(/\s+/g, "");
+  const m = /([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})/i.exec(oneLine);
+  return m?.[1] ?? null;
+}
+
+function normalizePhoneCandidate(input: string | undefined): string | null {
+  const raw = normalizePhoneText((input ?? "").trim());
+  if (!raw) return null;
+  // Keep original-ish formatting for storage, but reject if it doesn't look usable.
+  const digits = raw.replace(/\D/g, "");
+  if (digits.length < 8) return null;
+  return raw;
 }
 
 function pickInt(text: string, re: RegExp): number {

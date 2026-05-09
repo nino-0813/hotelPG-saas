@@ -5,10 +5,8 @@ export const ROOM_TYPE_LABEL: Record<RoomType, string> = {
   standard: "スタンダード",
   family: "ファミリー",
   single: "シングル",
-  washitsu_modern_4:
-    "【OPEN 記念価格】2 名利用でお得 | 和モダン客室 | 最大 4 名 | セミダブルベッド | 無料駐車場",
-  washitsu_modern_3:
-    "【OPEN 記念価格】2 名利用でお得 | 和モダン客室 | 最大 3 名 | 無料駐車場 | 長期滞在歓迎",
+  washitsu_modern_4: "和モダン（最大4名）",
+  washitsu_modern_3: "和モダン（最大3名）",
 };
 
 /** Options order in external-calendar「部屋タイプ」select */

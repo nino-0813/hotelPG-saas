@@ -134,6 +134,8 @@ export async function GET(
       .from("reservations")
       .select("id, check_in_date, check_out_date, status, updated_at")
       .in("room_id", roomIds)
+      // Only export manual reservations (avoid echoing OTA-imported reservations back to Rakuten)
+      .eq("source", "manual")
       .neq("status", "cancelled")
       .gte("check_out_date", todayStr)
       .order("updated_at", { ascending: false });

@@ -29,6 +29,19 @@ const STATUS_LABEL: Record<RoomStatusValue, string> = {
   occupied: "滞在中",
 };
 
+const CHECK_IN_TIME = "15:00";
+const CHECK_OUT_TIME = "10:00";
+
+function toLocalDateTime(date: string, time: string) {
+  return new Date(`${date}T${time}:00`);
+}
+
+function isOccupiedByTime(r: Reservation, now: Date) {
+  const checkInAt = toLocalDateTime(r.check_in_date, CHECK_IN_TIME);
+  const checkOutAt = toLocalDateTime(r.check_out_date, CHECK_OUT_TIME);
+  return now >= checkInAt && now < checkOutAt;
+}
+
 const STATUS_STYLE: Record<
   RoomStatusValue,
   { accent: string; pill: string; pillActive: string; emoji: string }
@@ -76,6 +89,9 @@ export function RoomStatusBoard({
   upcomingReservations,
   openTasks,
 }: Props) {
+  const now = useMemo(() => new Date(), []);
+  const today = useMemo(() => format(now, "yyyy-MM-dd"), [now]);
+
   const statusByRoom = useMemo(() => {
     const m = new Map<string, RoomStatusRow>();
     for (const s of statuses) m.set(s.room_id, s);
@@ -85,10 +101,22 @@ export function RoomStatusBoard({
   const currentByRoom = useMemo(() => {
     const m = new Map<string, Reservation>();
     for (const r of currentReservations) {
-      if (r.room_id) m.set(r.room_id, r);
+      if (!r.room_id) continue;
+      if (isOccupiedByTime(r, now)) m.set(r.room_id, r);
     }
     return m;
-  }, [currentReservations]);
+  }, [currentReservations, now]);
+
+  const checkedOutTodayByRoom = useMemo(() => {
+    const m = new Map<string, Reservation>();
+    for (const r of currentReservations) {
+      if (!r.room_id) continue;
+      if (r.check_out_date !== today) continue;
+      const checkOutAt = toLocalDateTime(r.check_out_date, CHECK_OUT_TIME);
+      if (now >= checkOutAt) m.set(r.room_id, r);
+    }
+    return m;
+  }, [currentReservations, now, today]);
 
   const upcomingByRoom = useMemo(() => {
     const m = new Map<string, Reservation>();
@@ -106,6 +134,24 @@ export function RoomStatusBoard({
     return m;
   }, [openTasks]);
 
+  const effectiveStatusByRoom = useMemo(() => {
+    const m = new Map<string, RoomStatusValue>();
+    for (const room of rooms) {
+      const base = statusByRoom.get(room.id)?.status ?? "ready";
+      if (currentByRoom.has(room.id)) {
+        m.set(room.id, "occupied");
+        continue;
+      }
+      // Auto: after 10:00 on checkout day, mark uncleaned until staff sets ready.
+      if (checkedOutTodayByRoom.has(room.id) && base !== "ready") {
+        m.set(room.id, "uncleaned");
+        continue;
+      }
+      m.set(room.id, base);
+    }
+    return m;
+  }, [rooms, statusByRoom, currentByRoom, checkedOutTodayByRoom]);
+
   // Summary counts
   const summaryCounts = useMemo(() => {
     const counts: Record<RoomStatusValue, number> = {
@@ -115,11 +161,11 @@ export function RoomStatusBoard({
       occupied: 0,
     };
     for (const r of rooms) {
-      const s = statusByRoom.get(r.id)?.status ?? "ready";
+      const s = effectiveStatusByRoom.get(r.id) ?? "ready";
       counts[s] += 1;
     }
     return counts;
-  }, [rooms, statusByRoom]);
+  }, [rooms, effectiveStatusByRoom]);
 
   return (
     <>
@@ -159,7 +205,7 @@ export function RoomStatusBoard({
                   <RoomCard
                     key={room.id}
                     room={room}
-                    status={statusByRoom.get(room.id)?.status ?? "ready"}
+                    status={effectiveStatusByRoom.get(room.id) ?? "ready"}
                     statusUpdatedAt={statusByRoom.get(room.id)?.updated_at}
                     current={currentByRoom.get(room.id) ?? null}
                     upcoming={upcomingByRoom.get(room.id) ?? null}
@@ -226,10 +272,10 @@ function RoomCard({
   const [pending, startTransition] = useTransition();
   const style = STATUS_STYLE[status];
 
-  const onChangeStatus = (next: RoomStatusValue) => {
-    if (next === status) return;
+  const onMarkReady = () => {
+    if (status === "ready") return;
     startTransition(async () => {
-      await updateRoomStatus(room.id, next);
+      await updateRoomStatus(room.id, "ready");
     });
   };
 
@@ -289,34 +335,26 @@ function RoomCard({
           ) : null}
         </div>
 
-        {/* Open task count */}
-        {openTaskCount > 0 ? (
-          <a
-            href="/tasks?range=week&status=active"
-            className="mb-3 flex items-center gap-1.5 rounded-md bg-amber-50 px-2 py-1 text-[11px] font-medium text-amber-800 hover:bg-amber-100"
-          >
-            ⚠️ 未完了タスク {openTaskCount}件
-          </a>
-        ) : null}
-
         {/* Status pills */}
-        <div className="grid grid-cols-2 gap-1.5 sm:flex sm:flex-wrap">
-          {STATUS_ORDER.map((s) => (
-            <button
-              key={s}
-              type="button"
-              onClick={() => onChangeStatus(s)}
-              disabled={pending}
-              className={clsx(
-                "rounded-md px-3 py-1.5 text-xs font-medium transition active:scale-95",
-                s === status
-                  ? STATUS_STYLE[s].pillActive
-                  : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200",
-              )}
-            >
-              {STATUS_LABEL[s]}
-            </button>
-          ))}
+        <div>
+          <button
+            type="button"
+            onClick={onMarkReady}
+            disabled={pending || status === "occupied" || status === "ready"}
+            className={clsx(
+              "w-full rounded-md px-3 py-2 text-xs font-semibold transition active:scale-[0.99]",
+              status === "ready"
+                ? "bg-neutral-100 text-neutral-400"
+                : "bg-emerald-600 text-white hover:bg-emerald-700 disabled:bg-neutral-100 disabled:text-neutral-400",
+            )}
+          >
+            準備完了にする
+          </button>
+          {status === "occupied" ? (
+            <div className="mt-1 text-[10px] text-neutral-400">
+              滞在中は変更できません（{CHECK_IN_TIME}〜 / 〜{CHECK_OUT_TIME}）
+            </div>
+          ) : null}
         </div>
 
         {statusUpdatedAt ? (

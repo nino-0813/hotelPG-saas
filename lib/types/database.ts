@@ -50,6 +50,7 @@ export type Reservation = {
   room_id: string | null;
   guest_name: string;
   guest_phone: string | null;
+  guest_email: string | null;
   guest_count: number;
   check_in_date: string;
   check_out_date: string;
