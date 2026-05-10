@@ -319,6 +319,8 @@ function RoomCard({
               guest={current.guest_name}
               dateRange={`${format(new Date(`${current.check_in_date}T00:00:00`), "M/d")} → ${format(new Date(`${current.check_out_date}T00:00:00`), "M/d")}`}
               tone="filled"
+              smartKeyCode={current.smart_key_code}
+              guestCount={current.guest_count}
             />
           ) : null}
           {upcoming ? (
@@ -328,6 +330,8 @@ function RoomCard({
               guest={upcoming.guest_name}
               dateRange={`${format(new Date(`${upcoming.check_in_date}T00:00:00`), "M/d (EEE)", { locale: ja })} 〜`}
               tone="muted"
+              smartKeyCode={upcoming.smart_key_code}
+              guestCount={upcoming.guest_count}
             />
           ) : null}
           {!current && !upcoming ? (
@@ -373,26 +377,50 @@ function ReservationLine({
   guest,
   dateRange,
   tone,
+  smartKeyCode,
+  guestCount,
 }: {
   label: string;
   icon: string;
   guest: string;
   dateRange: string;
   tone: "filled" | "muted";
+  smartKeyCode?: string | null;
+  guestCount?: number;
 }) {
+  const code = smartKeyCode?.trim();
+  const showMeta = Boolean(code) || guestCount != null;
+
   return (
-    <div
-      className={clsx(
-        "flex items-center gap-2 truncate",
-        tone === "muted" && "text-neutral-500",
-      )}
-    >
-      <span className="shrink-0">{icon}</span>
-      <span className="font-medium">{guest}</span>
-      <span className="text-neutral-500">{dateRange}</span>
-      <span className="ml-auto rounded bg-neutral-100 px-1.5 text-[9px] font-medium uppercase tracking-wide text-neutral-500">
-        {label}
-      </span>
+    <div className="space-y-0.5">
+      <div
+        className={clsx(
+          "flex items-center gap-2 truncate",
+          tone === "muted" && "text-neutral-500",
+        )}
+      >
+        <span className="shrink-0">{icon}</span>
+        <span className="font-medium">{guest}</span>
+        <span className="text-neutral-500">{dateRange}</span>
+        <span className="ml-auto rounded bg-neutral-100 px-1.5 text-[9px] font-medium uppercase tracking-wide text-neutral-500">
+          {label}
+        </span>
+      </div>
+      {showMeta ? (
+        <div
+          className={clsx(
+            "flex flex-wrap gap-x-3 gap-y-0.5 pl-6 text-[11px] tabular-nums",
+            tone === "muted" ? "text-neutral-500" : "text-neutral-600",
+          )}
+        >
+          {code ? (
+            <span>
+              パスワード <span className="font-semibold">{code}</span>
+            </span>
+          ) : null}
+          {guestCount != null ? <span>{guestCount}名</span> : null}
+        </div>
+      ) : null}
     </div>
   );
 }
