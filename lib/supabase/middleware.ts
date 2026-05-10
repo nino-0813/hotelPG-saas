@@ -48,7 +48,9 @@ export async function updateSession(request: NextRequest) {
     pathname.startsWith("/login") ||
     pathname.startsWith("/auth") ||
     pathname.startsWith("/_next") ||
-    pathname === "/favicon.ico";
+    pathname === "/favicon.ico" ||
+    // Google OAuth 完了後はログインセッションが無くても code と exchange できるようにする
+    pathname.startsWith("/api/google/callback");
 
   if (!user && !isPublic) {
     const url = request.nextUrl.clone();

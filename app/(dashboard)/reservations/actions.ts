@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { sendMail } from "@/lib/gmail";
 import { createClient } from "@/lib/supabase/server";
 import { syncAllEnabledCalendars } from "@/lib/ical/sync";
 import type {
@@ -169,66 +170,6 @@ export async function syncExternalCalendars() {
   };
 }
 
-function base64UrlEncode(input: string) {
-  return Buffer.from(input, "utf8")
-    .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/g, "");
-}
-
-async function getGmailAccessToken() {
-  const clientId = process.env.GMAIL_CLIENT_ID;
-  const clientSecret = process.env.GMAIL_CLIENT_SECRET;
-  const refreshToken = process.env.GMAIL_REFRESH_TOKEN;
-  if (!clientId || !clientSecret || !refreshToken) {
-    return { error: "Gmail API環境変数(GMAIL_CLIENT_ID/SECRET/REFRESH_TOKEN)が未設定です" };
-  }
-
-  const body = new URLSearchParams();
-  body.set("client_id", clientId);
-  body.set("client_secret", clientSecret);
-  body.set("refresh_token", refreshToken);
-  body.set("grant_type", "refresh_token");
-
-  const res = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body,
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    return { error: `Gmailトークン取得に失敗しました: HTTP ${res.status} ${text.slice(0, 200)}` };
-  }
-  const json = (await res.json()) as { access_token?: string };
-  if (!json.access_token) return { error: "Gmailアクセストークンが取得できませんでした" };
-  return { accessToken: json.access_token };
-}
-
-function buildCheckInEmail({
-  to,
-  subject,
-  body,
-  from,
-}: {
-  to: string;
-  subject: string;
-  body: string;
-  from: string;
-}) {
-  // Minimal RFC 5322 message
-  const raw = [
-    `From: ${from}`,
-    `To: ${to}`,
-    `Subject: ${subject}`,
-    "MIME-Version: 1.0",
-    'Content-Type: text/plain; charset="UTF-8"',
-    "",
-    body,
-  ].join("\r\n");
-  return raw;
-}
-
 function propertyLabelFromCode(code: string | null | undefined) {
   if (code === "PG1") return "HOTEL PG I";
   if (code === "PG2") return "HOTEL PG II";
@@ -242,16 +183,30 @@ function templateFooterContacts() {
     "ご不明な点やお困りの際は、お電話またはメッセージにて、サポートいたします。",
     "どうぞお気軽にご連絡ください。",
     "",
-    "■HOTELPG I",
-    "〒722-2323",
-    "広島県尾道市因島土生町1896-17",
-    "■HOTEL PGⅡ",
-    "〒722-2323",
-    "広島県尾道市因島土生町1896-8",
-    "TEL：070-8328-9154",
-    "電話受付対応時間9:00〜17:00",
+    "電話対応は18:00まで",
+    "",
+    "HOTEL PG -Ⅰ-",
+    "住所: 尾道市因島土生町1896-17",
+    "旅館業法に基づく営業許可番号: 尾市環指令第301号",
+    "電話: 070-8328-9154",
+    "チェックイン: 15:00〜18:00 / チェックアウト: 10:00",
+    "",
+    "HOTEL PG -Ⅱ-",
+    "住所: 尾道市因島土生町1896-8",
+    "旅館業法に基づく営業許可番号: 尾市環指令第753号",
+    "電話: 070-8328-9154",
+    "チェックイン: 15:00〜18:00 / チェックアウト: 10:00",
+    "",
+    "HOTEL PG -Ⅲ-",
+    "住所: 広島県尾道市因島土生町1747-5",
+    "旅館業法に基づく営業許可番号: 尾市環指令第083142号",
+    "電話: 070-8328-9154",
+    "チェックイン: 15:00〜18:00 / チェックアウト: 10:00",
   ].join("\n");
 }
+
+/** HOTEL PG I エントランス共用ロック（部屋キーとは別） */
+const PG1_ENTRANCE_UNLOCK = "4228＊";
 
 function buildCheckInBodyPG1(args: {
   guestName: string;
@@ -260,7 +215,7 @@ function buildCheckInBodyPG1(args: {
   smartKeyCode: string | null;
 }) {
   const room = args.roomNumber ?? "◯";
-  const key = args.smartKeyCode ? `${args.smartKeyCode}＊` : "◯◯◯◯＊";
+  const roomKey = args.smartKeyCode ? `${args.smartKeyCode}＊` : "◯◯◯◯＊";
   const dateYmd = args.checkInDate.replace(/-/g, "/");
 
   return [
@@ -279,7 +234,7 @@ function buildCheckInBodyPG1(args: {
     "■ HOTEL入口のロック解除方法",
     "1.    パネルに手をかざしてください。",
     "2.    表示された2つの数字を押してください。",
-    `3.    ロック解除番号「${key}」を入力してください。`,
+    `3.    ロック解除番号「${PG1_ENTRANCE_UNLOCK}」を入力してください。`,
     "",
     "■ ご注意事項",
     "館内は 土足厳禁 となっております。",
@@ -289,7 +244,7 @@ function buildCheckInBodyPG1(args: {
     `階段を上がって【${room}】のお部屋でございます。`,
     "お部屋のドアも、入口と同じ手順で解除いただけます。",
     "ロック解除番号は 下記の通りです。",
-    `PG I【${room}】「${key}」`,
+    `PG I【${room}】「${roomKey}」`,
     "",
     "■ お車でお越しのお客様へ",
     "駐車場をご用意させていただくため、お手数ですが お車の種類 をお知らせいただけますと幸いです。",
@@ -342,7 +297,7 @@ function buildCheckInBodyPG2(args: {
     "",
     "当ホテルではフロントを設けておらず、常駐スタッフもおりません。",
     "そのため セルフチェックイン方式 でご案内させていただいております。",
-    "チェックインは15:00以降から可能でございます。",
+    "チェックインは15:00〜18:00の間でお願いしております。",
     "当ホテル1階エントランスにキーボックスを設けておりますので、下記をご参照下さいませ。",
     "",
     "■ チェックインのご案内",
@@ -381,6 +336,33 @@ type CheckInEmailDraft = {
   from: string;
 };
 
+function splitReservationRoomJoin(r: {
+  rooms?: unknown;
+}): { propCode?: string; roomNumber: string | null } {
+  const raw = r.rooms;
+  const row = Array.isArray(raw) ? raw[0] : raw;
+  if (!row || typeof row !== "object") {
+    return { roomNumber: null };
+  }
+  const room_number =
+    "room_number" in row && typeof row.room_number === "string"
+      ? row.room_number
+      : null;
+  const props = "properties" in row ? row.properties : undefined;
+  let propCode: string | undefined;
+  if (props && typeof props === "object") {
+    if (Array.isArray(props)) {
+      const c = props[0];
+      if (c && typeof c === "object" && "code" in c) {
+        propCode = String((c as { code: string }).code);
+      }
+    } else if ("code" in props) {
+      propCode = String((props as { code: string }).code);
+    }
+  }
+  return { propCode, roomNumber: room_number };
+}
+
 async function buildCheckInEmailDraft(
   reservationId: string,
 ): Promise<{ draft?: CheckInEmailDraft; error?: string }> {
@@ -397,9 +379,8 @@ async function buildCheckInEmailDraft(
   if (!r.guest_email) return { error: "メールアドレスが未設定です" };
 
   const from = process.env.GMAIL_SENDER_EMAIL || "me";
-  const propCode = (r as any)?.rooms?.properties?.code as string | undefined;
+  const { propCode, roomNumber } = splitReservationRoomJoin(r);
   const subject = `【${propertyLabelFromCode(propCode)}】チェックインのご案内`;
-  const roomNumber = ((r as any)?.rooms?.room_number as string | undefined) ?? null;
 
   const body =
     propCode === "PG2"
@@ -434,32 +415,19 @@ export async function sendCheckInEmail(reservationId: string) {
   const draftRes = await buildCheckInEmailDraft(reservationId);
   if (draftRes.error || !draftRes.draft) return { error: draftRes.error ?? "メールを作成できません" };
 
-  const token = await getGmailAccessToken();
-  if ("error" in token) return { error: token.error };
+  try {
+    const fromOverride =
+      draftRes.draft.from !== "me" ? draftRes.draft.from : undefined;
 
-  const raw = buildCheckInEmail({
-    to: draftRes.draft.to,
-    subject: draftRes.draft.subject,
-    body: draftRes.draft.body,
-    from: draftRes.draft.from === "me" ? "me" : draftRes.draft.from,
-  });
+    await sendMail(draftRes.draft.to, draftRes.draft.subject, draftRes.draft.body, {
+      from: fromOverride ?? null,
+    });
 
-  const sendRes = await fetch(
-    "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
-    {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${token.accessToken}`,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({ raw: base64UrlEncode(raw) }),
-    },
-  );
-
-  if (!sendRes.ok) {
-    const text = await sendRes.text().catch(() => "");
-    return { error: `Gmail送信に失敗しました: HTTP ${sendRes.status} ${text.slice(0, 200)}` };
+    return { ok: true as const };
+  } catch (e) {
+    console.error("[sendCheckInEmail]", e);
+    const msg =
+      e instanceof Error ? e.message : "Gmail送信に失敗しました";
+    return { error: msg };
   }
-
-  return { ok: true as const };
 }

@@ -16,7 +16,6 @@ import {
   createReservation,
   deleteReservation,
   getCheckInEmailDraft,
-  sendCheckInEmail,
   syncExternalCalendars,
   updateReservation,
 } from "./actions";
@@ -447,11 +446,40 @@ function ReservationDetail({
   const handleConfirmSend = () => {
     startSend(async () => {
       setError(null);
-      const result = await sendCheckInEmail(reservation.id);
-      if (result?.error) setError(result.error);
-      else {
+      if (!emailDraft) return;
+
+      try {
+        const res = await fetch("/api/send-mail", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            to: emailDraft.to,
+            subject: emailDraft.subject,
+            message: emailDraft.body,
+          }),
+        });
+
+        const json = (await res.json().catch(() => ({}))) as {
+          success?: boolean;
+          error?: string;
+        };
+
+        if (!res.ok || !json.success) {
+          setError(
+            typeof json.error === "string"
+              ? json.error
+              : "送信に失敗しました",
+          );
+          return;
+        }
+
         setEmailDraft(null);
         router.refresh();
+      } catch (e) {
+        console.error("[check-in mail send]", e);
+        setError("送信に失敗しました");
       }
     });
   };
