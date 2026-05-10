@@ -448,6 +448,16 @@ function ReservationDetail({
       setError(null);
       if (!emailDraft) return;
 
+      const toTrimmed = emailDraft.to.trim();
+      if (!toTrimmed) {
+        setError("宛先メールアドレスを入力してください");
+        return;
+      }
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(toTrimmed)) {
+        setError("宛先のメール形式が正しくないようです");
+        return;
+      }
+
       try {
         const res = await fetch("/api/send-mail", {
           method: "POST",
@@ -455,7 +465,7 @@ function ReservationDetail({
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            to: emailDraft.to,
+            to: toTrimmed,
             subject: emailDraft.subject,
             message: emailDraft.body,
           }),
@@ -509,17 +519,41 @@ function ReservationDetail({
             <div className="border-b border-neutral-200 px-4 py-3 sm:px-6">
               <div className="text-sm font-semibold">送信内容の確認</div>
               <div className="mt-0.5 text-xs text-neutral-500">
-                この内容でチェックインメールを送信します
+                この内容でチェックインメールを送信します（宛先は送信直前に変更できます）
               </div>
             </div>
             <div className="space-y-3 px-4 py-4 text-sm sm:px-6 sm:py-5">
-              <Row label="宛先">{emailDraft.to}</Row>
+              <div className="grid gap-1.5 sm:grid-cols-[100px_1fr] sm:items-start sm:gap-3">
+                <div className="text-xs font-medium text-neutral-500 sm:pt-2">
+                  宛先
+                </div>
+                <div className="min-w-0">
+                  <input
+                    type="email"
+                    autoComplete="email"
+                    value={emailDraft.to}
+                    onChange={(e) => {
+                      setError(null);
+                      setEmailDraft((d) =>
+                        d ? { ...d, to: e.target.value } : null,
+                      );
+                    }}
+                    className="w-full rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 shadow-sm focus:border-neutral-500 focus:outline-none focus:ring-1 focus:ring-neutral-400"
+                    placeholder="example@..."
+                  />
+                </div>
+              </div>
               <Row label="件名">{emailDraft.subject}</Row>
               <Row label="本文">
                 <pre className="whitespace-pre-wrap rounded-md border border-neutral-200 bg-neutral-50 p-3 text-[12px] leading-relaxed">
                   {emailDraft.body}
                 </pre>
               </Row>
+              {error ? (
+                <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+                  {error}
+                </p>
+              ) : null}
             </div>
             <div className="sticky bottom-0 flex flex-wrap items-center justify-end gap-2 border-t border-neutral-200 bg-neutral-50 px-4 py-3 sm:px-6">
               <button
@@ -533,7 +567,7 @@ function ReservationDetail({
               <button
                 type="button"
                 onClick={handleConfirmSend}
-                disabled={sending}
+                disabled={sending || !emailDraft.to.trim()}
                 className="rounded-md bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-neutral-800 disabled:opacity-50"
               >
                 {sending ? "送信中..." : "送信"}
