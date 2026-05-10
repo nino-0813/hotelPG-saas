@@ -20,9 +20,12 @@ function isActive(pathname: string, href: string) {
 
 export function DesktopNav({ isAdmin = false }: { isAdmin?: boolean }) {
   const pathname = usePathname();
+  const navItems = isAdmin
+    ? NAV_ITEMS
+    : NAV_ITEMS.filter((item) => item.href === "/rooms");
   return (
     <nav className="hidden items-center gap-1 text-sm md:flex">
-      {NAV_ITEMS.map((item) => {
+      {navItems.map((item) => {
         const active = isActive(pathname, item.href);
         return (
           <Link
@@ -61,14 +64,22 @@ export function DesktopNav({ isAdmin = false }: { isAdmin?: boolean }) {
   );
 }
 
-export function MobileBottomNav() {
+export function MobileBottomNav({ isAdmin = false }: { isAdmin?: boolean }) {
   const pathname = usePathname();
+  const navItems = isAdmin
+    ? NAV_ITEMS
+    : NAV_ITEMS.filter((item) => item.href === "/rooms");
+  const gridCols =
+    navItems.length <= 1 ? "grid-cols-1" : "grid-cols-3";
   return (
     <nav
-      className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-3 border-t border-neutral-200 bg-white shadow-[0_-1px_2px_rgba(0,0,0,0.04)] md:hidden"
+      className={clsx(
+        "fixed inset-x-0 bottom-0 z-30 grid border-t border-neutral-200 bg-white shadow-[0_-1px_2px_rgba(0,0,0,0.04)] md:hidden",
+        gridCols,
+      )}
       style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
     >
-      {NAV_ITEMS.map((item) => {
+      {navItems.map((item) => {
         const active = isActive(pathname, item.href);
         return (
           <Link

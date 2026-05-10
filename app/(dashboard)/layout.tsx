@@ -20,21 +20,25 @@ export default async function DashboardLayout({
     .maybeSingle();
 
   const displayName = staffRow?.display_name ?? user.email;
+  const isAdmin = staffRow?.role === "admin";
 
   return (
     <div className="flex min-h-screen min-w-0 flex-col overflow-x-hidden">
       <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b border-neutral-200 bg-white px-4 sm:px-6">
         <div className="flex items-center gap-3 md:gap-6">
-          <Link href="/" className="text-base font-semibold tracking-tight">
+          <Link
+            href={isAdmin ? "/" : "/rooms"}
+            className="text-base font-semibold tracking-tight"
+          >
             HotelPG
           </Link>
-          <DesktopNav isAdmin={staffRow?.role === "admin"} />
+          <DesktopNav isAdmin={isAdmin} />
         </div>
         <div className="flex items-center gap-2 text-sm">
           <span className="hidden max-w-[160px] truncate text-neutral-500 sm:inline">
             {displayName}
           </span>
-          {staffRow?.role === "admin" ? (
+          {isAdmin ? (
             <span className="rounded bg-neutral-900 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-white">
               admin
             </span>
@@ -56,7 +60,7 @@ export default async function DashboardLayout({
       {/* Bottom padding (pb-20) on mobile reserves space for the bottom nav */}
       <div className="min-w-0 flex-1 pb-20 md:pb-0">{children}</div>
 
-      <MobileBottomNav />
+      <MobileBottomNav isAdmin={isAdmin} />
     </div>
   );
 }

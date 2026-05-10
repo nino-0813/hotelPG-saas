@@ -1,5 +1,6 @@
 import { addDays, endOfDay, format, startOfDay } from "date-fns";
 import { ja } from "date-fns/locale";
+import { redirect } from "next/navigation";
 import {
   createClient,
   getCachedSupabaseAuth,
@@ -45,6 +46,14 @@ export default async function TasksPage({
   const mineOnly = params.mine === "1";
 
   const { supabase, user } = await getCachedSupabaseAuth();
+  if (!user) redirect("/login");
+
+  const { data: staffRow } = await supabase
+    .from("staff")
+    .select("role")
+    .eq("id", user.id)
+    .maybeSingle();
+  if (staffRow?.role !== "admin") redirect("/rooms");
 
   const now = new Date();
   const today = startOfDay(now);

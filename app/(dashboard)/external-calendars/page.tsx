@@ -17,13 +17,7 @@ export default async function ExternalCalendarsPage() {
     .maybeSingle();
 
   if (staffRow?.role !== "admin") {
-    return (
-      <main className="px-4 py-6 sm:px-6">
-        <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          このページは管理者のみ閲覧できます。
-        </div>
-      </main>
-    );
+    redirect("/rooms");
   }
 
   const [{ data: properties }, { data: calendars }] = await Promise.all([

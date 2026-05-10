@@ -1,5 +1,6 @@
 import { addDays, format } from "date-fns";
-import { createClient } from "@/lib/supabase/server";
+import { redirect } from "next/navigation";
+import { getCachedSupabaseAuth } from "@/lib/supabase/server";
 import type {
   ExternalCalendar,
   Property,
@@ -16,6 +17,16 @@ export default async function ReservationsPage({
 }: {
   searchParams: SearchParams;
 }) {
+  const { supabase, user } = await getCachedSupabaseAuth();
+  if (!user) redirect("/login");
+
+  const { data: staffRow } = await supabase
+    .from("staff")
+    .select("role")
+    .eq("id", user.id)
+    .maybeSingle();
+  if (staffRow?.role !== "admin") redirect("/rooms");
+
   const { start, days: daysParam } = await searchParams;
 
   const startDate = start ? new Date(`${start}T00:00:00`) : new Date();
@@ -26,8 +37,6 @@ export default async function ReservationsPage({
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const todayStr = format(today, "yyyy-MM-dd");
-
-  const supabase = await createClient();
 
   const [
     { data: properties },

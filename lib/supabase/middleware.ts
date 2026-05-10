@@ -1,6 +1,15 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
+/** Paths that staff (role !== admin) may not open; they only use 部屋ステータス (/rooms). */
+function staffPathForbidden(pathname: string): boolean {
+  if (pathname === "/") return true;
+  if (pathname.startsWith("/reservations")) return true;
+  if (pathname.startsWith("/tasks")) return true;
+  if (pathname.startsWith("/external-calendars")) return true;
+  return false;
+}
+
 export async function updateSession(request: NextRequest) {
   const { pathname } = request.nextUrl;
   // Public ICS export (token-gated in the route handler). Must be reachable by external services.
@@ -48,9 +57,31 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
+  // Session refresh only for asset/chunk requests — no staff routing.
+  if (pathname.startsWith("/_next")) {
+    return response;
+  }
+
+  let isAdmin = false;
+  if (user) {
+    const { data: staffRow } = await supabase
+      .from("staff")
+      .select("role")
+      .eq("id", user.id)
+      .maybeSingle();
+    isAdmin = staffRow?.role === "admin";
+  }
+
   if (user && pathname.startsWith("/login")) {
     const url = request.nextUrl.clone();
-    url.pathname = "/";
+    url.pathname = isAdmin ? "/reservations" : "/rooms";
+    return NextResponse.redirect(url);
+  }
+
+  if (user && !isPublic && !isAdmin && staffPathForbidden(pathname)) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/rooms";
+    url.search = "";
     return NextResponse.redirect(url);
   }
 
