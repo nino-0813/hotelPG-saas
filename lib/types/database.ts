@@ -85,6 +85,8 @@ export type ExternalCalendar = {
   last_sync_status: "success" | "error" | null;
   last_sync_error: string | null;
   last_sync_imported: number;
+  last_sync_created: number;
+  last_sync_updated: number;
   last_sync_cancelled: number;
   created_at: string;
   updated_at: string;

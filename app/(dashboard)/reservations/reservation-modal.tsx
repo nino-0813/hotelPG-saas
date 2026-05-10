@@ -21,6 +21,7 @@ import {
   updateReservation,
 } from "./actions";
 import { cancelReservation } from "@/app/actions/cancelReservation";
+import { summarizeMultipleSyncResults } from "@/lib/ical/sync-summary";
 
 export type ModalState =
   | { mode: "closed" }
@@ -100,6 +101,10 @@ function NewReservationForm({
   const [syncing, startSync] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [syncedAt, setSyncedAt] = useState<string | null>(null);
+  const [syncSummary, setSyncSummary] = useState<{
+    headline: string;
+    detailLines: string[];
+  } | null>(null);
 
   const room = rooms.find((r) => r.id === roomId);
   const property = properties.find((p) => p.id === room?.property_id);
@@ -136,8 +141,10 @@ function NewReservationForm({
   const handleSync = () => {
     startSync(async () => {
       setError(null);
+      setSyncSummary(null);
       try {
-        await syncExternalCalendars();
+        const data = await syncExternalCalendars();
+        setSyncSummary(summarizeMultipleSyncResults(data.results));
         setSyncedAt(new Date().toLocaleString("ja-JP"));
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
@@ -168,6 +175,18 @@ function NewReservationForm({
         <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
           手入力予約の前に「外部カレンダーを同期」して、楽天などの最新予約を取り込んでください（在庫ズレ防止）。
         </div>
+        {syncSummary ? (
+          <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-950">
+            <div className="font-semibold">{syncSummary.headline}</div>
+            {syncSummary.detailLines.length > 0 ? (
+              <ul className="mt-1.5 list-inside list-disc space-y-0.5 text-emerald-900">
+                {syncSummary.detailLines.map((line, i) => (
+                  <li key={i}>{line}</li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        ) : null}
         <Field label="ゲスト名" required>
           <input
             name="guest_name"

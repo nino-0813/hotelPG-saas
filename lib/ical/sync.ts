@@ -1,13 +1,26 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchIcs, parseIcs, type ParsedReservation } from "./parse";
 
+export type SyncNewBookingSummary = {
+  guest_name: string;
+  check_in_date: string;
+  check_out_date: string;
+};
+
 export type SyncResult = {
   calendarId: string;
   ok: boolean;
+  /** 新規+更新の合計（従来の取り込み件数） */
   imported: number;
+  created: number;
+  updated: number;
   cancelled: number;
+  /** 今回新規に追加された予約（表示用、最大15件） */
+  newBookings: SyncNewBookingSummary[];
   error?: string;
 };
+
+const MAX_NEW_BOOKING_PREVIEWS = 15;
 
 function deriveSmartKeyCodeFromPhone(phone: string | null): string | null {
   if (!phone) return null;
@@ -53,7 +66,10 @@ export async function syncOneCalendar(
       calendarId,
       ok: false,
       imported: 0,
+      created: 0,
+      updated: 0,
       cancelled: 0,
+      newBookings: [],
       error: calErr?.message ?? "calendar not found",
     };
   }
@@ -63,7 +79,10 @@ export async function syncOneCalendar(
       calendarId,
       ok: false,
       imported: 0,
+      created: 0,
+      updated: 0,
       cancelled: 0,
+      newBookings: [],
       error: "calendar is disabled",
     };
   }
@@ -82,7 +101,16 @@ export async function syncOneCalendar(
         last_sync_error: msg.slice(0, 500),
       })
       .eq("id", calendarId);
-    return { calendarId, ok: false, imported: 0, cancelled: 0, error: msg };
+    return {
+      calendarId,
+      ok: false,
+      imported: 0,
+      created: 0,
+      updated: 0,
+      cancelled: 0,
+      newBookings: [],
+      error: msg,
+    };
   }
 
   // Existing reservations imported from this calendar (so we can detect deletions)
@@ -102,6 +130,9 @@ export async function syncOneCalendar(
 
   const incomingUids = new Set(parsed.map((p) => p.uid));
   let imported = 0;
+  let created = 0;
+  let updated = 0;
+  const newBookings: SyncNewBookingSummary[] = [];
   let firstUpsertError: string | null = null;
 
   const { data: roomsAll } = await supabase
@@ -184,6 +215,18 @@ export async function syncOneCalendar(
       continue;
     }
     imported++;
+    if (existingRow) {
+      updated++;
+    } else {
+      created++;
+      if (newBookings.length < MAX_NEW_BOOKING_PREVIEWS) {
+        newBookings.push({
+          guest_name: ev.guest_name,
+          check_in_date: ev.check_in_date,
+          check_out_date: ev.check_out_date,
+        });
+      }
+    }
   }
 
   // Mark missing reservations as cancelled
@@ -216,6 +259,8 @@ export async function syncOneCalendar(
           ? firstUpsertError.slice(0, 500)
           : null,
       last_sync_imported: imported,
+      last_sync_created: created,
+      last_sync_updated: updated,
       last_sync_cancelled: cancelled,
     })
     .eq("id", calendarId);
@@ -224,7 +269,10 @@ export async function syncOneCalendar(
     calendarId,
     ok: !upsertAllFailed,
     imported,
+    created,
+    updated,
     cancelled,
+    newBookings,
     ...(upsertAllFailed && firstUpsertError
       ? { error: firstUpsertError }
       : {}),

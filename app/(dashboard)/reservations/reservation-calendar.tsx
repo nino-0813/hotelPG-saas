@@ -239,7 +239,8 @@ export function ReservationCalendar({
           const checkIn = new Date(`${r.check_in_date}T00:00:00`);
           const checkOut = new Date(`${r.check_out_date}T00:00:00`);
           const startCol = colForDate(checkIn);
-          const endCol = colForDate(checkOut) + 1; // +1 because grid-column-end is exclusive
+          // チェックアウト日の列は含めない（その日の朝までの滞在）。翌ゲストと同日CI/COで列が被らないようにする。
+          const endCol = colForDate(checkOut);
           if (endCol <= startCol) return null;
 
           return (

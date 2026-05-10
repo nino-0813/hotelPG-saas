@@ -10,6 +10,10 @@ import type {
   RoomType,
 } from "@/lib/types/database";
 import {
+  summarizeMultipleSyncResults,
+  summarizeSingleSyncResult,
+} from "@/lib/ical/sync-summary";
+import {
   addCalendar,
   deleteCalendar,
   syncAll,
@@ -31,19 +35,16 @@ const SOURCE_LABEL: Record<string, string> = {
 export function CalendarList({ properties, calendars }: Props) {
   const [showForm, setShowForm] = useState(calendars.length === 0);
   const [pending, startTransition] = useTransition();
-  const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const [syncFeedback, setSyncFeedback] = useState<{
+    headline: string;
+    detailLines: string[];
+  } | null>(null);
 
   const onSyncAll = () => {
-    setSyncMessage(null);
+    setSyncFeedback(null);
     startTransition(async () => {
       const results = await syncAll();
-      const total = results.length;
-      const ok = results.filter((r) => r.ok).length;
-      const totalImported = results.reduce((s, r) => s + r.imported, 0);
-      const totalCancelled = results.reduce((s, r) => s + r.cancelled, 0);
-      setSyncMessage(
-        `${ok}/${total} 件成功 / 取り込み ${totalImported}件 / キャンセル ${totalCancelled}件`,
-      );
+      setSyncFeedback(summarizeMultipleSyncResults(results));
     });
   };
 
@@ -67,9 +68,18 @@ export function CalendarList({ properties, calendars }: Props) {
             {pending ? "同期中..." : "🔄 全部同期"}
           </button>
         )}
-        {syncMessage && (
-          <span className="text-xs text-neutral-600">{syncMessage}</span>
-        )}
+        {syncFeedback ? (
+          <div className="max-w-xl space-y-1 text-xs">
+            <div className="font-medium text-neutral-800">{syncFeedback.headline}</div>
+            {syncFeedback.detailLines.length > 0 ? (
+              <ul className="list-inside list-disc space-y-0.5 text-neutral-600">
+                {syncFeedback.detailLines.map((line, i) => (
+                  <li key={i}>{line}</li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       {showForm && (
@@ -230,17 +240,23 @@ function CalendarRow({
   property: Property | undefined;
 }) {
   const [pending, startTransition] = useTransition();
-  const [result, setResult] = useState<string | null>(null);
+  const [syncDetail, setSyncDetail] = useState<{
+    headline: string;
+    lines: string[];
+  } | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
 
   const onSync = () => {
-    setResult(null);
+    setSyncDetail(null);
+    setSyncError(null);
     startTransition(async () => {
       const r = await syncCalendar(calendar.id);
-      setResult(
-        r.ok
-          ? `✓ 取り込み ${r.imported}件 / キャンセル ${r.cancelled}件`
-          : `✗ ${r.error ?? "エラー"}`,
-      );
+      if (!r.ok) {
+        setSyncError(r.error ?? "エラー");
+        return;
+      }
+      const { headline, detailLines } = summarizeSingleSyncResult(r);
+      setSyncDetail({ headline, lines: detailLines });
     });
   };
 
@@ -298,8 +314,11 @@ function CalendarRow({
             </span>
             {calendar.last_sync_status === "success" && (
               <span className="text-emerald-700">
-                ✓ 取込 {calendar.last_sync_imported}件
-                {calendar.last_sync_cancelled > 0 && ` / キャンセル ${calendar.last_sync_cancelled}件`}
+                ✓ 新規 {calendar.last_sync_created ?? 0} / 更新{" "}
+                {calendar.last_sync_updated ?? 0}
+                {calendar.last_sync_cancelled > 0
+                  ? ` · キャンセル反映 ${calendar.last_sync_cancelled}件`
+                  : ""}
               </span>
             )}
             {calendar.last_sync_status === "error" && (
@@ -308,7 +327,23 @@ function CalendarRow({
               </span>
             )}
           </div>
-          {result && <div className="mt-1 text-[11px]">{result}</div>}
+          {syncError && (
+            <div className="mt-1 text-[11px] text-red-700">✗ {syncError}</div>
+          )}
+          {syncDetail ? (
+            <div className="mt-1 space-y-1 text-[11px]">
+              <div className="font-medium text-neutral-800">
+                ✓ {syncDetail.headline}
+              </div>
+              {syncDetail.lines.length > 0 ? (
+                <ul className="list-inside list-disc space-y-0.5 text-neutral-600">
+                  {syncDetail.lines.map((line, i) => (
+                    <li key={i}>{line}</li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+          ) : null}
         </div>
 
         <div className="flex shrink-0 flex-wrap gap-2">
