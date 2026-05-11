@@ -22,6 +22,11 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.next({ request });
   }
 
+  // Admin HTTP API (x-admin-api-secret in route handler; no Supabase session required).
+  if (pathname.startsWith("/api/admin")) {
+    return NextResponse.next({ request });
+  }
+
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(

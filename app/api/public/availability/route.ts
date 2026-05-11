@@ -1,5 +1,6 @@
 import { addDays, format, parseISO } from "date-fns";
 import { NextResponse, type NextRequest } from "next/server";
+import { listPriceFromRoomSetting } from "@/lib/availability/list-price-from-db-setting";
 import {
   computePublicAvailabilityByDate,
   type PublicReservationRow,
@@ -11,6 +12,10 @@ import {
   hasListPriceRule,
   resolvePg3RoomTypesForFilter,
 } from "@/lib/availability/public-rate-rules";
+import type {
+  PublicInventoryCapRow,
+  PublicRoomSettingRow,
+} from "@/lib/types/public-catalog";
 import { createServiceRoleSupabase } from "@/lib/supabase/service-role";
 
 export const runtime = "nodejs";
@@ -101,7 +106,7 @@ async function loadReservationsForAvailability(
     .select(
       "room_id, requested_room_type, requested_property_id, check_in_date, check_out_date, status",
     )
-    .in("status", ["confirmed", "checked_in"])
+    .in("status", ["confirmed", "checked_in", "blocked", "manual"])
     .lte("check_in_date", lastDateStr)
     .gt("check_out_date", start);
 
@@ -284,12 +289,57 @@ export async function GET(req: NextRequest) {
 
     const rateCode = resolvedPropertyCode;
     const rateRoomType = roomTypeParam;
+
+    let dbRoomSetting: PublicRoomSettingRow | null = null;
+    let dbInventoryCaps: PublicInventoryCapRow[] | null = null;
+
+    if (rateCode && rateRoomType) {
+      const [rsRes, icRes] = await Promise.all([
+        supabase
+          .from("public_room_settings")
+          .select("*")
+          .eq("property_code", rateCode)
+          .eq("room_type", rateRoomType)
+          .maybeSingle(),
+        supabase
+          .from("public_inventory_caps")
+          .select("*")
+          .eq("property_code", rateCode)
+          .eq("room_type", rateRoomType),
+      ]);
+
+      if (rsRes.error) {
+        console.error("[public/availability] public_room_settings", rsRes.error);
+      } else {
+        dbRoomSetting = (rsRes.data as PublicRoomSettingRow | null) ?? null;
+      }
+      if (icRes.error) {
+        console.error("[public/availability] public_inventory_caps", icRes.error);
+        dbInventoryCaps = null;
+      } else {
+        dbInventoryCaps = (icRes.data as PublicInventoryCapRow[] | null) ?? [];
+      }
+    }
+
+    const hasDbPrice =
+      dbRoomSetting !== null && dbRoomSetting.is_active === true;
+    const hasCodePrice =
+      !hasDbPrice &&
+      rateCode !== null &&
+      rateRoomType !== null &&
+      hasListPriceRule(rateCode, rateRoomType);
+
     const listPriceForDateFn =
-      rateCode &&
-      rateRoomType &&
-      hasListPriceRule(rateCode, rateRoomType)
+      hasDbPrice || hasCodePrice
         ? (dateYmd: string, guestCount: number) =>
-            computeListPriceForNight(rateCode, rateRoomType, dateYmd, guestCount)
+            hasDbPrice
+              ? listPriceFromRoomSetting(dbRoomSetting!, dateYmd, guestCount)
+              : computeListPriceForNight(
+                  rateCode!,
+                  rateRoomType!,
+                  dateYmd,
+                  guestCount,
+                )
         : undefined;
 
     const availabilityCap = resolvePublicAvailabilityCap(
@@ -297,6 +347,7 @@ export async function GET(req: NextRequest) {
       roomTypeParam,
       roomTypesFilter,
       partySize,
+      dbInventoryCaps,
     );
 
     const computeOptions =
@@ -307,6 +358,17 @@ export async function GET(req: NextRequest) {
               : {}),
             ...(availabilityCap != null
               ? { availabilityCap }
+              : {}),
+            ...(process.env.NODE_ENV === "development"
+              ? {
+                  debug: {
+                    propertyCode: rateCode ?? null,
+                    propertyId: resolvedPropertyId ?? null,
+                    roomType: rateRoomType ?? null,
+                    roomIds,
+                    reservationsFetchedCount: reservations.length,
+                  },
+                }
               : {}),
           }
         : undefined;

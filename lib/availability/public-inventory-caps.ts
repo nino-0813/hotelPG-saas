@@ -1,17 +1,10 @@
-/**
- * Marketing / safety caps on `availableRooms` for the public availability API.
- * Physical counts stay in DB; this only clamps the number returned to the website.
- */
+import type { PublicInventoryCapRow } from "@/lib/types/public-catalog";
 
 /**
- * Returns a maximum `availableRooms` per night for the current filter, or null for no cap.
- *
- * @param propertyCode Resolved property `code` (e.g. PG1), or null in aggregate mode
- * @param roomTypeQuery Original `roomType` query param (used for PG1/PG2 matching)
- * @param roomTypesFilter Resolved DB `room_type` list (PG3 aliases expanded)
- * @param partySize adults + children (affects PG3 combined cap when only 4-cap rooms apply)
+ * Code fallback caps when `public_inventory_caps` has no matching row.
+ * Physical counts stay in DB; this only clamps the number returned to the website.
  */
-export function resolvePublicAvailabilityCap(
+export function resolveFallbackPublicAvailabilityCap(
   propertyCode: string | null,
   roomTypeQuery: string | null,
   roomTypesFilter: string[] | null,
@@ -41,4 +34,38 @@ export function resolvePublicAvailabilityCap(
   if (has3) return 9;
 
   return null;
+}
+
+/**
+ * Caps `availableRooms` per night: `public_inventory_caps` first (guest band match),
+ * then code fallback in {@link resolveFallbackPublicAvailabilityCap}.
+ *
+ * @param dbCaps Rows for this property_code + room_type query (may be empty after fetch).
+ *        Pass `null` when no DB lookup was done (aggregate / unscoped mode).
+ */
+export function resolvePublicAvailabilityCap(
+  propertyCode: string | null,
+  roomTypeQuery: string | null,
+  roomTypesFilter: string[] | null,
+  partySize: number,
+  dbCaps: PublicInventoryCapRow[] | null,
+): number | null {
+  if (dbCaps !== null && propertyCode && roomTypeQuery) {
+    const g = partySize;
+    const match = dbCaps.find(
+      (c) =>
+        c.property_code === propertyCode &&
+        c.room_type === roomTypeQuery &&
+        g >= c.min_guests &&
+        g <= c.max_guests,
+    );
+    if (match) return match.inventory_cap;
+  }
+
+  return resolveFallbackPublicAvailabilityCap(
+    propertyCode,
+    roomTypeQuery,
+    roomTypesFilter,
+    partySize,
+  );
 }

@@ -52,6 +52,17 @@ export type PublicAvailabilityComputeOptions = {
   listPriceForDate?: (dateYmd: string, guestCount: number) => number | null;
   /** When set, each night’s `availableRooms` is at most this value (after occupancy math). */
   availabilityCap?: number | null;
+  /**
+   * Development-only debug metadata. If provided and NODE_ENV=development, logs per-night occupancy math.
+   * Never include any reservation PII here.
+   */
+  debug?: {
+    propertyCode: string | null;
+    propertyId: string | null;
+    roomType: string | null;
+    roomIds: string[];
+    reservationsFetchedCount: number;
+  };
 };
 
 function roomMaxGuests(row: PublicRoomRow): number {
@@ -84,7 +95,12 @@ export function dateInStayRange(
 
 /** Blocking occupancy: confirmed + checked_in (excludes cancelled / checked_out). */
 function countsTowardOccupancy(status: string): boolean {
-  return status === "confirmed" || status === "checked_in";
+  return (
+    status === "confirmed" ||
+    status === "checked_in" ||
+    status === "blocked" ||
+    status === "manual"
+  );
 }
 
 type PropertyTypeKey = `${string}|${string}`;
@@ -110,6 +126,76 @@ export function computePublicAvailabilityByDate(
   const sellable = rooms.filter((r) => isRoomSellable(r, partySize));
 
   const dates: PublicDateAvailability[] = dateStrings.map((d) => {
+    // For scoped (single product) mode we support a safer cap order:
+    // cappedBase = min(totalPhysicalRooms, inventoryCap)
+    // availableRooms = max(0, cappedBase - bookedCount)
+    if (options?.availabilityCap != null) {
+      const roomIdSet = new Set(sellable.map((r) => r.id));
+
+      const bookedRoomIds: string[] = [];
+      let unassignedCount = 0;
+
+      for (const res of reservations) {
+        if (!countsTowardOccupancy(res.status)) continue;
+        if (!dateInStayRange(d, res.check_in_date, res.check_out_date)) continue;
+        if (res.room_id) {
+          if (roomIdSet.has(res.room_id)) bookedRoomIds.push(res.room_id);
+          continue;
+        }
+        // In scoped mode, route handler already filtered unassigned reservations
+        // to the matching property/room_type. Count each as 1 unit of inventory.
+        unassignedCount += 1;
+      }
+
+      const bookedAssignedCount = new Set(bookedRoomIds).size;
+      const bookedCount = bookedAssignedCount + unassignedCount;
+      const totalPhysicalRooms = sellable.length;
+      const cappedBase = Math.min(totalPhysicalRooms, options.availabilityCap);
+      const availableRooms = Math.max(0, cappedBase - bookedCount);
+
+      let minPrice: number | null = null;
+      if (availableRooms > 0) {
+        if (options.listPriceForDate) {
+          const listed = options.listPriceForDate(d, partySize);
+          if (listed != null && Number.isFinite(listed)) minPrice = listed;
+        }
+        if (minPrice === null) {
+          // Fallback to a room-based floor for this (filtered) set.
+          let m: number | null = null;
+          for (const r of sellable) {
+            const p = roomUnitPrice(r);
+            m = m === null ? p : Math.min(m, p);
+          }
+          minPrice = m;
+        }
+      }
+
+      if (process.env.NODE_ENV === "development" && options.debug) {
+        console.log("[public/availability][debug]", {
+          propertyCode: options.debug.propertyCode,
+          propertyId: options.debug.propertyId,
+          roomType: options.debug.roomType,
+          date: d,
+          roomIds: options.debug.roomIds,
+          reservationsFetchedCount: options.debug.reservationsFetchedCount,
+          reservationsCountedForOccupancy: bookedCount,
+          bookedRoomIds: Array.from(new Set(bookedRoomIds)),
+          nullRoomIdReservationsCount: unassignedCount,
+          totalPhysicalRooms,
+          availabilityCap: options.availabilityCap,
+          cappedBase,
+          finalAvailableRooms: availableRooms,
+        });
+      }
+
+      return {
+        date: d,
+        availableRooms,
+        minPrice,
+        bookable: availableRooms >= 1,
+      };
+    }
+
     const assignedOccupied = new Set<string>();
     for (const res of reservations) {
       if (!countsTowardOccupancy(res.status)) continue;
