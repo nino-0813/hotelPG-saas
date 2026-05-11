@@ -17,6 +17,11 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.next({ request });
   }
 
+  // Public read-only availability for the marketing site (no PII in response).
+  if (pathname.startsWith("/api/public")) {
+    return NextResponse.next({ request });
+  }
+
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(
