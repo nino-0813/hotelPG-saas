@@ -27,6 +27,11 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.next({ request });
   }
 
+  // Stripe webhook endpoint (no session required).
+  if (pathname.startsWith("/api/stripe")) {
+    return NextResponse.next({ request });
+  }
+
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(

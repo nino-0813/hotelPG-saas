@@ -66,6 +66,7 @@ export type Reservation = {
   external_calendar_id: string | null;
   requested_property_id: string | null;
   requested_room_type: RoomType | null;
+  stripe_session_id?: string | null;
   created_at: string;
   updated_at: string;
 };
