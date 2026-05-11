@@ -22,6 +22,16 @@ import {
 import { cancelReservation } from "@/app/actions/cancelReservation";
 import { summarizeMultipleSyncResults } from "@/lib/ical/sync-summary";
 
+function reservationSourceLabel(s: string | null | undefined): string {
+  if (!s) return "—";
+  const map: Record<string, string> = {
+    stripe_web: "公式Web（Stripe）",
+    rakuten_oyado: "楽天（楽天お宿）",
+    manual: "手入力",
+  };
+  return map[s] ?? s;
+}
+
 export type ModalState =
   | { mode: "closed" }
   | { mode: "new"; roomId: string; date: string }
@@ -625,7 +635,7 @@ function ReservationDetail({
             "—"
           )}
         </Row>
-        <Row label="予約元">{reservation.source ?? "—"}</Row>
+        <Row label="予約元">{reservationSourceLabel(reservation.source)}</Row>
 
         {error ? (
           <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">

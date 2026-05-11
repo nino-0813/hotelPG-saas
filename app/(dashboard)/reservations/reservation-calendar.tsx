@@ -454,6 +454,15 @@ function ReservationBlock({
           現
         </span>
       ) : null}
+      {reservation.source === "stripe_web" ? (
+        <span className="rounded bg-indigo-200 px-0.5 text-[8px] font-semibold text-indigo-950 sm:px-1 sm:text-[9px]">
+          Web
+        </span>
+      ) : reservation.source === "rakuten_oyado" ? (
+        <span className="rounded bg-rose-200 px-0.5 text-[8px] font-semibold text-rose-950 sm:px-1 sm:text-[9px]">
+          楽天
+        </span>
+      ) : null}
       {hasNotes ? (
         <span className="rounded bg-red-200 px-0.5 text-[8px] font-semibold text-red-900 sm:px-1 sm:text-[9px]">
           !
@@ -498,6 +507,8 @@ function tooltipText(r: Reservation) {
     `${r.check_in_date} ${r.check_in_time?.slice(0, 5) ?? ""} → ${r.check_out_date} ${r.check_out_time?.slice(0, 5) ?? ""}`,
     `決済: ${r.payment_method === "onsite" ? "現地" : "オンライン"}`,
   ];
+  if (r.source === "stripe_web") parts.push("予約元: 公式Web（Stripe）");
+  else if (r.source === "rakuten_oyado") parts.push("予約元: 楽天");
   if (r.smart_key_code) parts.push(`鍵: ${r.smart_key_code}`);
   if (r.special_notes) parts.push(`備考: ${r.special_notes}`);
   return parts.join("\n");

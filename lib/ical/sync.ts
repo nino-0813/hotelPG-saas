@@ -1,5 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchIcs, parseIcs, type ParsedReservation } from "./parse";
+import {
+  deriveSmartKeyCodeFallback,
+  deriveSmartKeyCodeFromPhone,
+} from "@/lib/reservations/guest-smart-key";
+import { pickAvailableRoomForStay } from "@/lib/reservations/pick-available-room-for-stay";
 
 export type SyncNewBookingSummary = {
   guest_name: string;
@@ -22,34 +27,11 @@ export type SyncResult = {
 
 const MAX_NEW_BOOKING_PREVIEWS = 15;
 
-function deriveSmartKeyCodeFromPhone(phone: string | null): string | null {
-  if (!phone) return null;
-  const normalized = phone
-    .replace(/[０-９]/g, (ch) =>
-      String.fromCharCode(ch.charCodeAt(0) - 0xff10 + 0x30),
-    )
-    .replace(/[‐‑‒–—―ー−]/g, "-");
-  const digits = normalized.replace(/\D/g, "");
-  if (digits.length < 4) return null;
-  return digits.slice(-4);
-}
-
-function deriveSmartKeyCodeFallback(seed: string): string {
-  // Stable 4-digit code derived from seed (reservation_code or external UID).
-  // Intent: deterministic across re-sync; avoids 0000; slight "Porno/Innosima" flavor via multiplier.
-  let hash = 0;
-  for (let i = 0; i < seed.length; i++) {
-    hash = (hash * 39 + seed.charCodeAt(i)) % 100000; // 39 as a fixed factor
-  }
-  const n = (hash % 9000) + 1000; // 1000-9999
-  return String(n).padStart(4, "0");
-}
-
 /**
  * Fetch one external calendar, upsert reservations matched by external_uid,
  * and mark missing UIDs as cancelled.
  *
- * Imported reservations have room_id = NULL (pending manual assignment).
+ * Imported reservations auto-assign a room when a free room exists in the calendar's room type.
  */
 export async function syncOneCalendar(
   supabase: SupabaseClient,
@@ -135,41 +117,31 @@ export async function syncOneCalendar(
   const newBookings: SyncNewBookingSummary[] = [];
   let firstUpsertError: string | null = null;
 
-  const { data: roomsAll } = await supabase
-    .from("rooms")
-    .select("id, property_id, room_type, display_order")
-    .eq("property_id", cal.property_id)
-    .eq("room_type", cal.target_room_type)
-    .order("display_order", { ascending: true });
-
   for (const ev of parsed) {
     const existingRow = existingMap.get(ev.uid);
     const existingReservationId = existingRow?.id ?? null;
     const pinnedRoomId = existingRow?.room_id ?? null;
-    const smartKeyCode =
-      deriveSmartKeyCodeFromPhone(ev.guest_phone) ??
-      deriveSmartKeyCodeFallback(ev.reservation_code ?? ev.uid);
 
     let assignedRoomId: string | null = pinnedRoomId;
+    let pickedRoomKey: string | null = null;
     if (!assignedRoomId) {
-      const candidateRoomIds = (roomsAll ?? []).map((r) => r.id);
-      let occupiedRoomIds = new Set<string>();
-      if (candidateRoomIds.length > 0) {
-        let q = supabase
-          .from("reservations")
-          .select("room_id")
-          .neq("status", "cancelled")
-          .in("room_id", candidateRoomIds)
-          .lt("check_in_date", ev.check_out_date)
-          .gt("check_out_date", ev.check_in_date);
-        if (existingReservationId) q = q.neq("id", existingReservationId);
-        const { data: overlaps } = await q.returns<{ room_id: string }[]>();
-        occupiedRoomIds = new Set<string>((overlaps ?? []).map((r) => r.room_id));
-      }
-
-      const candidate = (roomsAll ?? []).find((r) => !occupiedRoomIds.has(r.id));
-      assignedRoomId = candidate?.id ?? null;
+      const picked = await pickAvailableRoomForStay(supabase, {
+        propertyId: cal.property_id,
+        roomTypes: [cal.target_room_type],
+        checkInDate: ev.check_in_date,
+        checkOutDate: ev.check_out_date,
+        excludeReservationId: existingReservationId,
+      });
+      assignedRoomId = picked.roomId;
+      pickedRoomKey = picked.roomSmartKey;
     }
+
+    const smartKeyCode =
+      (pickedRoomKey && pickedRoomKey.trim().length > 0
+        ? pickedRoomKey.trim().slice(0, 40)
+        : null) ??
+      deriveSmartKeyCodeFromPhone(ev.guest_phone) ??
+      deriveSmartKeyCodeFallback(ev.reservation_code ?? ev.uid);
 
     const noteParts = [
       ev.reservation_code ? `予約コード: ${ev.reservation_code}` : null,

@@ -11,13 +11,16 @@ import { resolvePublicAvailabilityCap } from "@/lib/availability/public-inventor
 import {
   computeListPriceForNight,
   hasListPriceRule,
-  resolvePg3RoomTypesForFilter,
 } from "@/lib/availability/public-rate-rules";
 import type {
   PublicInventoryCapRow,
   PublicRoomSettingRow,
 } from "@/lib/types/public-catalog";
 import { createStripeCheckoutSession } from "@/lib/stripe/stripe-api";
+import {
+  pendingUnassignedMatchAndClause,
+  resolveDbRoomTypesForBooking,
+} from "@/lib/reservations/room-types-for-booking";
 
 export const runtime = "nodejs";
 
@@ -59,10 +62,7 @@ function resolveRoomTypesForFilter(
   propertyCode: string,
   roomTypeParam: string,
 ): string[] {
-  if (propertyCode === "PG3") {
-    return resolvePg3RoomTypesForFilter(roomTypeParam);
-  }
-  return [roomTypeParam];
+  return resolveDbRoomTypesForBooking(propertyCode, roomTypeParam);
 }
 
 async function loadAvailabilityForStay(params: {
@@ -93,6 +93,7 @@ async function loadAvailabilityForStay(params: {
   }
 
   const roomTypesFilter = resolveRoomTypesForFilter(prop.code, roomType);
+  const unassignedPart = pendingUnassignedMatchAndClause(prop.id, roomTypesFilter);
 
   let roomsQ = supabase
     .from("rooms")
@@ -123,11 +124,8 @@ async function loadAvailabilityForStay(params: {
     .gt("check_out_date", checkInDate)
     .or(
       roomIds.length > 0
-        ? [
-            `room_id.in.(${roomIds.join(",")})`,
-            `and(room_id.is.null,requested_property_id.eq.${prop.id},requested_room_type.eq.${roomType})`,
-          ].join(",")
-        : `and(room_id.is.null,requested_property_id.eq.${prop.id},requested_room_type.eq.${roomType})`,
+        ? [`room_id.in.(${roomIds.join(",")})`, unassignedPart].join(",")
+        : unassignedPart,
     )
     .returns<PublicReservationRow[]>();
   if (resErr) throw new Error("Failed to load reservations");

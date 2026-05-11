@@ -12,12 +12,17 @@ import { resolvePublicAvailabilityCap } from "@/lib/availability/public-inventor
 import {
   computeListPriceForNight,
   hasListPriceRule,
-  resolvePg3RoomTypesForFilter,
 } from "@/lib/availability/public-rate-rules";
 import type {
   PublicInventoryCapRow,
   PublicRoomSettingRow,
 } from "@/lib/types/public-catalog";
+import { createReservationWithAssignment } from "@/lib/reservations/create-reservation-with-assignment";
+import {
+  pendingUnassignedMatchAndClause,
+  resolveDbRoomTypesForBooking,
+} from "@/lib/reservations/room-types-for-booking";
+import { insertStripeWebhookLog } from "@/lib/stripe/webhook-event-log";
 
 export const runtime = "nodejs";
 
@@ -39,30 +44,7 @@ function resolveRoomTypesForFilter(
   propertyCode: string,
   roomTypeParam: string,
 ): string[] {
-  if (propertyCode === "PG3") {
-    return resolvePg3RoomTypesForFilter(roomTypeParam);
-  }
-  return [roomTypeParam];
-}
-
-async function logWebhookEvent(params: {
-  eventId: string;
-  sessionId: string;
-  level: "info" | "warn" | "error";
-  message: string;
-}) {
-  try {
-    const supabase = createServiceRoleSupabase();
-    await supabase.from("webhook_event_logs").insert({
-      source: "stripe",
-      event_id: params.eventId,
-      session_id: params.sessionId,
-      level: params.level,
-      message: params.message.slice(0, 500),
-    });
-  } catch (e) {
-    console.error("[stripe/webhook] failed to write webhook_event_logs", e);
-  }
+  return resolveDbRoomTypesForBooking(propertyCode, roomTypeParam);
 }
 
 async function loadAvailabilityForStay(params: {
@@ -91,6 +73,7 @@ async function loadAvailabilityForStay(params: {
   if (!prop) throw new Error("Unknown propertyCode");
 
   const roomTypesFilter = resolveRoomTypesForFilter(prop.code, roomType);
+  const unassignedPart = pendingUnassignedMatchAndClause(prop.id, roomTypesFilter);
 
   let roomsQ = supabase
     .from("rooms")
@@ -120,11 +103,8 @@ async function loadAvailabilityForStay(params: {
     .gt("check_out_date", checkInDate)
     .or(
       roomIds.length > 0
-        ? [
-            `room_id.in.(${roomIds.join(",")})`,
-            `and(room_id.is.null,requested_property_id.eq.${(prop as PropertyRow).id},requested_room_type.eq.${roomType})`,
-          ].join(",")
-        : `and(room_id.is.null,requested_property_id.eq.${(prop as PropertyRow).id},requested_room_type.eq.${roomType})`,
+        ? [`room_id.in.(${roomIds.join(",")})`, unassignedPart].join(",")
+        : unassignedPart,
     )
     .returns<PublicReservationRow[]>();
   const reservations = reservationsRaw ?? [];
@@ -217,19 +197,26 @@ export async function POST(req: NextRequest) {
   const guestPhone = md.guestPhone ?? null;
   const totalAmount = Number.parseInt(md.totalAmount ?? "0", 10);
 
+  const supabase = createServiceRoleSupabase();
+
   if (!propertyCode || !roomType || !checkInDate || !checkOutDate) {
-    await logWebhookEvent({
-      eventId: event.id,
-      sessionId,
+    await insertStripeWebhookLog(supabase, {
+      event_type: "checkout.session.completed",
+      event_id: event.id,
+      stripe_session_id: sessionId,
       level: "error",
       message: "Missing required metadata fields",
+      property_code: propertyCode ?? null,
+      room_type: roomType ?? null,
+      check_in_date: checkInDate ?? null,
+      check_out_date: checkOutDate ?? null,
+      reason: "bad_metadata",
+      assigned_room_id: null,
+      has_smart_key_code: null,
     });
     return new NextResponse("Bad metadata", { status: 200 });
   }
 
-  const supabase = createServiceRoleSupabase();
-
-  // Idempotency: already saved.
   const { data: existing } = await supabase
     .from("reservations")
     .select("id")
@@ -239,7 +226,6 @@ export async function POST(req: NextRequest) {
     return new NextResponse("OK", { status: 200 });
   }
 
-  // Re-check availability after payment (avoid overbooking).
   let stay;
   try {
     stay = await loadAvailabilityForStay({
@@ -252,11 +238,19 @@ export async function POST(req: NextRequest) {
     });
   } catch (e) {
     console.error("[stripe/webhook] availability check error", e);
-    await logWebhookEvent({
-      eventId: event.id,
-      sessionId,
+    await insertStripeWebhookLog(supabase, {
+      event_type: "checkout.session.completed",
+      event_id: event.id,
+      stripe_session_id: sessionId,
       level: "error",
       message: "Availability check failed during webhook",
+      property_code: propertyCode,
+      room_type: roomType,
+      check_in_date: checkInDate,
+      check_out_date: checkOutDate,
+      reason: "availability_check_error",
+      assigned_room_id: null,
+      has_smart_key_code: null,
     });
     return new NextResponse("OK", { status: 200 });
   }
@@ -266,64 +260,65 @@ export async function POST(req: NextRequest) {
   const hasNullPrice = dates.some((d) => d.minPrice == null);
 
   if (!allBookable || hasNullPrice) {
-    await logWebhookEvent({
-      eventId: event.id,
-      sessionId,
+    await insertStripeWebhookLog(supabase, {
+      event_type: "checkout.session.completed",
+      event_id: event.id,
+      stripe_session_id: sessionId,
       level: "warn",
       message: "No availability after payment; reservation not created",
-    });
-    return new NextResponse("OK", { status: 200 });
-  }
-
-  const requestedPropertyId = stay.prop.id;
-  const guestCount = Math.max(1, (Number.isFinite(adults) ? adults : 0) + (Number.isFinite(children) ? children : 0));
-
-  const specialNotes = `公式サイトStripe決済 / 金額: ${Number.isFinite(totalAmount) ? totalAmount : 0}円`;
-
-  const { data: created, error: insErr } = await supabase
-    .from("reservations")
-    .insert({
-      room_id: null,
-      requested_property_id: requestedPropertyId,
-      requested_room_type: roomType,
-      guest_name: guestName.slice(0, 80) || "Web Guest",
-      guest_email: guestEmail.slice(0, 200) || null,
-      guest_phone: guestPhone ? String(guestPhone).slice(0, 40) : null,
-      guest_count: guestCount,
+      property_code: propertyCode,
+      room_type: roomType,
       check_in_date: checkInDate,
       check_out_date: checkOutDate,
-      check_in_time: "15:00:00",
-      check_out_time: "11:00:00",
-      payment_method: "online",
-      source: "stripe_web",
-      status: "confirmed",
-      stripe_session_id: sessionId,
-      special_notes: specialNotes.slice(0, 200),
-    })
-    .select("id")
-    .single();
-
-  if (insErr || !created?.id) {
-    console.error("[stripe/webhook] insert reservation failed", insErr);
-    await logWebhookEvent({
-      eventId: event.id,
-      sessionId,
-      level: "error",
-      message: "Insert to reservations failed",
+      reason: "no_availability_after_payment",
+      assigned_room_id: null,
+      has_smart_key_code: null,
     });
     return new NextResponse("OK", { status: 200 });
   }
 
-  // Optional audit trail.
-  try {
-    await supabase.from("reservation_logs").insert({
-      reservation_id: created.id,
-      action: "created",
+  const guestCount = Math.max(
+    1,
+    (Number.isFinite(adults) ? adults : 0) + (Number.isFinite(children) ? children : 0),
+  );
+  const amt = Number.isFinite(totalAmount) ? totalAmount : 0;
+  const specialNotes = `【公式サイト / Stripe】\n料金（合計）: ¥${amt.toLocaleString("ja-JP")}`;
+
+  const created = await createReservationWithAssignment({
+    supabase,
+    propertyCode,
+    roomType,
+    checkInDate,
+    checkOutDate,
+    guestName,
+    guestEmail: guestEmail || null,
+    guestPhone: guestPhone ? String(guestPhone) : null,
+    guestCount,
+    source: "stripe_web",
+    paymentMethod: "online",
+    stripeSessionId: sessionId,
+    totalAmount: amt,
+    specialNotes,
+    stripeEventId: event.id,
+  });
+
+  if (!created.ok) {
+    console.error("[stripe/webhook] createReservationWithAssignment", created.error);
+    await insertStripeWebhookLog(supabase, {
+      event_type: "checkout.session.completed",
+      event_id: event.id,
+      stripe_session_id: sessionId,
+      level: "error",
+      message: created.error.slice(0, 500),
+      property_code: propertyCode,
+      room_type: roomType,
+      check_in_date: checkInDate,
+      check_out_date: checkOutDate,
+      reason: "reservation_insert_failed",
+      assigned_room_id: null,
+      has_smart_key_code: null,
     });
-  } catch (e) {
-    console.error("[stripe/webhook] reservation_logs insert failed", e);
   }
 
   return new NextResponse("OK", { status: 200 });
 }
-

@@ -47,7 +47,7 @@ export function PendingAssignments({
   );
 
   useEffect(() => {
-    if (!open) setExpandedSections(new Set());
+    if (!open) queueMicrotask(() => setExpandedSections(new Set()));
   }, [open]);
 
   function toggleSection(label: string) {
@@ -118,11 +118,17 @@ export function PendingAssignments({
                           <span className="text-xs text-neutral-500">
                             {r.guest_count}名
                           </span>
-                          {r.external_source && (
+                          {(() => {
+                            const badgeKey =
+                              r.source === "stripe_web"
+                                ? "stripe_web"
+                                : (r.external_source ?? r.source);
+                            return badgeKey ? (
                             <span className="rounded bg-neutral-900 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-white">
-                              {sourceLabel(r.external_source)}
+                              {sourceLabel(badgeKey)}
                             </span>
-                          )}
+                            ) : null;
+                          })()}
                           {r.requested_room_type && (
                             <span className="rounded bg-neutral-100 px-1.5 py-0.5 text-[10px] font-medium text-neutral-700">
                               {ROOM_TYPE_LABEL[r.requested_room_type] ??
@@ -512,6 +518,7 @@ function buildPendingGroups(
 function sourceLabel(source: string) {
   const map: Record<string, string> = {
     rakuten_oyado: "楽天",
+    stripe_web: "公式Web（Stripe）",
     booking_com: "Booking",
     airbnb: "Airbnb",
   };
