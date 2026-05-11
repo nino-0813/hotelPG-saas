@@ -5,6 +5,7 @@ import {
   type PublicReservationRow,
   type PublicRoomRow,
 } from "@/lib/availability/public-availability";
+import { resolvePublicAvailabilityCap } from "@/lib/availability/public-inventory-caps";
 import {
   computeListPriceForNight,
   hasListPriceRule,
@@ -291,15 +292,32 @@ export async function GET(req: NextRequest) {
             computeListPriceForNight(rateCode, rateRoomType, dateYmd, guestCount)
         : undefined;
 
+    const availabilityCap = resolvePublicAvailabilityCap(
+      rateCode,
+      roomTypeParam,
+      roomTypesFilter,
+      partySize,
+    );
+
+    const computeOptions =
+      listPriceForDateFn || availabilityCap != null
+        ? {
+            ...(listPriceForDateFn
+              ? { listPriceForDate: listPriceForDateFn }
+              : {}),
+            ...(availabilityCap != null
+              ? { availabilityCap }
+              : {}),
+          }
+        : undefined;
+
     const body = computePublicAvailabilityByDate(
       start,
       days,
       partySize,
       rooms,
       reservations,
-      listPriceForDateFn
-        ? { listPriceForDate: listPriceForDateFn }
-        : undefined,
+      computeOptions,
     );
 
     return NextResponse.json(body, {

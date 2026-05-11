@@ -50,6 +50,8 @@ export type PublicAvailabilityComputeOptions = {
    * `guestCount` is adults + children from the API.
    */
   listPriceForDate?: (dateYmd: string, guestCount: number) => number | null;
+  /** When set, each night’s `availableRooms` is at most this value (after occupancy math). */
+  availabilityCap?: number | null;
 };
 
 function roomMaxGuests(row: PublicRoomRow): number {
@@ -192,6 +194,11 @@ export function computePublicAvailabilityByDate(
           minPriceCandidates.push(floor);
         }
       }
+    }
+
+    const cap = options?.availabilityCap;
+    if (cap != null && Number.isFinite(cap) && cap >= 0) {
+      availableRooms = Math.min(availableRooms, cap);
     }
 
     let minPrice: number | null =
