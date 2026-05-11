@@ -9,7 +9,10 @@ export type PublicRateBand = {
   saturday: number;
 };
 
-/** property `code` (e.g. PG1) → room_type → nightly rates (yen). */
+/** Per-guest surcharge (yen/night) from the 3rd guest onward (PG2 family, PG3). */
+export const EXTRA_PER_GUEST_FROM_THIRD = 5200;
+
+/** property `code` (e.g. PG1) → room_type → nightly base rates (yen), before guest surcharges. */
 export const RATE_RULES: Record<string, Record<string, PublicRateBand>> = {
   PG1: {
     standard: {
@@ -46,21 +49,94 @@ export function getTokyoDayKind(dateYmd: string): TokyoDayKind {
   return "weekday";
 }
 
-/** List price for a property code + room type on a calendar night, or null if no rule. */
-export function getListPriceForDate(
+function isWeekendKind(kind: TokyoDayKind): boolean {
+  return kind === "friday" || kind === "saturday";
+}
+
+/** PG-III DB uses washitsu_modern_*; web may send family/standard as aliases. */
+export function isPg3PricedRoomTypeAlias(roomType: string): boolean {
+  const n = roomType.toLowerCase();
+  return (
+    n === "family" ||
+    n === "standard" ||
+    roomType === "washitsu_modern_4" ||
+    roomType === "washitsu_modern_3"
+  );
+}
+
+/**
+ * When the site passes family/standard for PG3, inventory should match actual DB room_type values.
+ */
+export function resolvePg3RoomTypesForFilter(roomTypeParam: string): string[] {
+  const v = roomTypeParam.toLowerCase();
+  if (v === "family" || v === "standard") {
+    return ["washitsu_modern_4", "washitsu_modern_3"];
+  }
+  return [roomTypeParam];
+}
+
+/** PG-III: base covers 1–2 guests; each guest from the 3rd adds EXTRA_PER_GUEST_FROM_THIRD (max occupancy is per room, not a price tier). */
+function pg3ListPriceForNight(
+  dateYmd: string,
+  guestCount: number,
+): number {
+  const kind = getTokyoDayKind(dateYmd);
+  const weekend = isWeekendKind(kind);
+  const base = weekend ? 26500 : 22500;
+  const guests = Math.max(1, guestCount);
+  const extraGuests = Math.max(0, guests - 2);
+  return base + extraGuests * EXTRA_PER_GUEST_FROM_THIRD;
+}
+
+function pg2FamilyListPriceForNight(dateYmd: string, guestCount: number): number {
+  const band = RATE_RULES.PG2?.family;
+  if (!band) return 0;
+  const kind = getTokyoDayKind(dateYmd);
+  const base = band[kind];
+  const guests = Math.max(1, guestCount);
+  const extraGuests = Math.max(0, guests - 2);
+  return base + extraGuests * EXTRA_PER_GUEST_FROM_THIRD;
+}
+
+/**
+ * Published list price for one night (yen), or null if no rule applies.
+ * `guestCount` = adults + children from the public API.
+ */
+export function computeListPriceForNight(
   propertyCode: string,
   roomType: string,
   dateYmd: string,
+  guestCount: number,
 ): number | null {
+  if (propertyCode === "PG3" && isPg3PricedRoomTypeAlias(roomType)) {
+    return pg3ListPriceForNight(dateYmd, guestCount);
+  }
+
+  if (propertyCode === "PG2" && roomType === "family") {
+    return pg2FamilyListPriceForNight(dateYmd, guestCount);
+  }
+
   const band = RATE_RULES[propertyCode]?.[roomType];
   if (!band) return null;
   const kind = getTokyoDayKind(dateYmd);
   return band[kind];
 }
 
+/** @deprecated Use computeListPriceForNight with explicit guestCount. */
+export function getListPriceForDate(
+  propertyCode: string,
+  roomType: string,
+  dateYmd: string,
+): number | null {
+  return computeListPriceForNight(propertyCode, roomType, dateYmd, 2);
+}
+
 export function hasListPriceRule(
   propertyCode: string,
   roomType: string,
 ): boolean {
+  if (propertyCode === "PG3" && isPg3PricedRoomTypeAlias(roomType)) {
+    return true;
+  }
   return RATE_RULES[propertyCode]?.[roomType] != null;
 }

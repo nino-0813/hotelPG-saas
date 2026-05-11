@@ -6,8 +6,9 @@ import {
   type PublicRoomRow,
 } from "@/lib/availability/public-availability";
 import {
-  getListPriceForDate,
+  computeListPriceForNight,
   hasListPriceRule,
+  resolvePg3RoomTypesForFilter,
 } from "@/lib/availability/public-rate-rules";
 import { createServiceRoleSupabase } from "@/lib/supabase/service-role";
 
@@ -50,6 +51,18 @@ function trimParam(raw: string | null): string | null {
   return t === "" ? null : t;
 }
 
+/** Resolves API roomType param to DB room_type filter list (PG3 web aliases → washitsu types). */
+function resolveRoomTypesForFilter(
+  resolvedPropertyCode: string | null,
+  roomTypeParam: string | null,
+): string[] | null {
+  if (!roomTypeParam) return null;
+  if (resolvedPropertyCode === "PG3") {
+    return resolvePg3RoomTypesForFilter(roomTypeParam);
+  }
+  return [roomTypeParam];
+}
+
 const corsJsonHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, OPTIONS",
@@ -62,13 +75,24 @@ export function OPTIONS() {
 
 type PropertyRow = { id: string; code: string };
 
+function appendRequestedRoomTypeFilter(
+  parts: string[],
+  roomTypesFilter: string[],
+): void {
+  if (roomTypesFilter.length === 1) {
+    parts.push(`requested_room_type.eq.${roomTypesFilter[0]}`);
+  } else {
+    parts.push(`requested_room_type.in.(${roomTypesFilter.join(",")})`);
+  }
+}
+
 async function loadReservationsForAvailability(
   supabase: ReturnType<typeof createServiceRoleSupabase>,
   start: string,
   lastDateStr: string,
   roomIds: string[],
   resolvedPropertyId: string | null,
-  roomType: string | null,
+  roomTypesFilter: string[] | null,
   hasRoomOrPropertyFilter: boolean,
 ): Promise<{ data: PublicReservationRow[] | null; error: Error | null }> {
   const base = supabase
@@ -85,17 +109,19 @@ async function loadReservationsForAvailability(
     return { data, error: error as Error | null };
   }
 
+  const hasRoomType = roomTypesFilter !== null && roomTypesFilter.length > 0;
+
   if (roomIds.length === 0) {
-    let q = base;
-    if (resolvedPropertyId && roomType) {
-      q = q
-        .is("room_id", null)
-        .eq("requested_property_id", resolvedPropertyId)
-        .eq("requested_room_type", roomType);
-    } else if (resolvedPropertyId) {
-      q = q.is("room_id", null).eq("requested_property_id", resolvedPropertyId);
-    } else if (roomType) {
-      q = q.is("room_id", null).eq("requested_room_type", roomType);
+    let q = base.is("room_id", null);
+    if (resolvedPropertyId) {
+      q = q.eq("requested_property_id", resolvedPropertyId);
+    }
+    if (hasRoomType) {
+      if (roomTypesFilter!.length === 1) {
+        q = q.eq("requested_room_type", roomTypesFilter![0]);
+      } else {
+        q = q.in("requested_room_type", roomTypesFilter!);
+      }
     }
     const { data, error } = await q.returns<PublicReservationRow[]>();
     return { data, error: error as Error | null };
@@ -103,12 +129,20 @@ async function loadReservationsForAvailability(
 
   const inList = roomIds.join(",");
   let orExpr: string;
-  if (resolvedPropertyId && roomType) {
-    orExpr = `room_id.in.(${inList}),and(room_id.is.null,requested_property_id.eq.${resolvedPropertyId},requested_room_type.eq.${roomType})`;
+
+  if (resolvedPropertyId && hasRoomType) {
+    const andParts = [
+      "room_id.is.null",
+      `requested_property_id.eq.${resolvedPropertyId}`,
+    ];
+    appendRequestedRoomTypeFilter(andParts, roomTypesFilter!);
+    orExpr = `room_id.in.(${inList}),and(${andParts.join(",")})`;
   } else if (resolvedPropertyId) {
     orExpr = `room_id.in.(${inList}),and(room_id.is.null,requested_property_id.eq.${resolvedPropertyId})`;
-  } else if (roomType) {
-    orExpr = `room_id.in.(${inList}),and(room_id.is.null,requested_room_type.eq.${roomType})`;
+  } else if (hasRoomType) {
+    const andParts = ["room_id.is.null"];
+    appendRequestedRoomTypeFilter(andParts, roomTypesFilter!);
+    orExpr = `room_id.in.(${inList}),and(${andParts.join(",")})`;
   } else {
     orExpr = `room_id.in.(${inList})`;
   }
@@ -189,6 +223,11 @@ export async function GET(req: NextRequest) {
       resolvedPropertyCode = byCode.code;
     }
 
+    const roomTypesFilter = resolveRoomTypesForFilter(
+      resolvedPropertyCode,
+      roomTypeParam,
+    );
+
     let roomsQuery = supabase
       .from("rooms")
       .select("id, property_id, room_type, room_number, display_order");
@@ -196,8 +235,12 @@ export async function GET(req: NextRequest) {
     if (resolvedPropertyId) {
       roomsQuery = roomsQuery.eq("property_id", resolvedPropertyId);
     }
-    if (roomTypeParam) {
-      roomsQuery = roomsQuery.eq("room_type", roomTypeParam);
+    if (roomTypesFilter) {
+      if (roomTypesFilter.length === 1) {
+        roomsQuery = roomsQuery.eq("room_type", roomTypesFilter[0]);
+      } else {
+        roomsQuery = roomsQuery.in("room_type", roomTypesFilter);
+      }
     }
 
     const { data: roomsRaw, error: roomsErr } =
@@ -224,7 +267,7 @@ export async function GET(req: NextRequest) {
         lastDateStr,
         roomIds,
         resolvedPropertyId,
-        roomTypeParam,
+        roomTypesFilter,
         hasRoomOrPropertyFilter,
       );
 
@@ -244,8 +287,8 @@ export async function GET(req: NextRequest) {
       rateCode &&
       rateRoomType &&
       hasListPriceRule(rateCode, rateRoomType)
-        ? (dateYmd: string) =>
-            getListPriceForDate(rateCode, rateRoomType, dateYmd)
+        ? (dateYmd: string, guestCount: number) =>
+            computeListPriceForNight(rateCode, rateRoomType, dateYmd, guestCount)
         : undefined;
 
     const body = computePublicAvailabilityByDate(

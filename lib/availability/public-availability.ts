@@ -47,8 +47,9 @@ export type PublicAvailabilityComputeOptions = {
   /**
    * When set (e.g. PG1 + standard from the website), overrides minPrice for each date
    * using published rate rules; falls back to room-based pricing when it returns null.
+   * `guestCount` is adults + children from the API.
    */
-  listPriceForDate?: (dateYmd: string) => number | null;
+  listPriceForDate?: (dateYmd: string, guestCount: number) => number | null;
 };
 
 function roomMaxGuests(row: PublicRoomRow): number {
@@ -199,7 +200,7 @@ export function computePublicAvailabilityByDate(
         : Math.min(...minPriceCandidates);
 
     if (availableRooms > 0 && options?.listPriceForDate) {
-      const listed = options.listPriceForDate(d);
+      const listed = options.listPriceForDate(d, partySize);
       if (listed != null && Number.isFinite(listed)) {
         minPrice = listed;
       }
