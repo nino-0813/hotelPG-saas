@@ -43,6 +43,14 @@ export type PublicDateAvailability = {
   bookable: boolean;
 };
 
+export type PublicAvailabilityComputeOptions = {
+  /**
+   * When set (e.g. PG1 + standard from the website), overrides minPrice for each date
+   * using published rate rules; falls back to room-based pricing when it returns null.
+   */
+  listPriceForDate?: (dateYmd: string) => number | null;
+};
+
 function roomMaxGuests(row: PublicRoomRow): number {
   if (typeof row.capacity === "number" && row.capacity > 0) {
     return row.capacity;
@@ -88,6 +96,7 @@ export function computePublicAvailabilityByDate(
   partySize: number,
   rooms: PublicRoomRow[],
   reservations: PublicReservationRow[],
+  options?: PublicAvailabilityComputeOptions,
 ): { start: string; days: number; dates: PublicDateAvailability[] } {
   const start = parseISO(`${startDate}T00:00:00`);
   const dateStrings: string[] = [];
@@ -184,10 +193,17 @@ export function computePublicAvailabilityByDate(
       }
     }
 
-    const minPrice =
+    let minPrice: number | null =
       minPriceCandidates.length === 0
         ? null
         : Math.min(...minPriceCandidates);
+
+    if (availableRooms > 0 && options?.listPriceForDate) {
+      const listed = options.listPriceForDate(d);
+      if (listed != null && Number.isFinite(listed)) {
+        minPrice = listed;
+      }
+    }
 
     return {
       date: d,
