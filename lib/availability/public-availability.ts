@@ -41,8 +41,11 @@ export type PublicReservationRow = {
 export type PublicDateCheckoutEstimate = {
   targetRoomNetAmount: number;
   accommodationTaxAmount: number;
-  stripeFeeRate: number;
+  rawStripeChargeAmount: number;
   stripeChargeAmount: number;
+  roundingAmount: number;
+  roundingUnit: number;
+  stripeEffectiveFeeRate: number;
 };
 
 export type PublicDateAvailability = {
@@ -146,8 +149,11 @@ function withCheckoutEstimate(
     checkoutEstimate: {
       targetRoomNetAmount: b.targetRoomNetAmount,
       accommodationTaxAmount: b.accommodationTaxAmount,
-      stripeFeeRate: b.stripeFeeRate,
+      rawStripeChargeAmount: b.rawStripeChargeAmount,
       stripeChargeAmount: b.stripeChargeAmount,
+      roundingAmount: b.roundingAmount,
+      roundingUnit: b.roundingUnit,
+      stripeEffectiveFeeRate: b.stripeEffectiveFeeRate,
     },
   };
 }

@@ -65,6 +65,18 @@ export async function POST(req: NextRequest) {
     md.stripeChargeAmount ?? md.totalAmount ?? "0",
     10,
   );
+  const rawFromMd = md.rawStripeChargeAmount
+    ? Number.parseInt(md.rawStripeChargeAmount, 10)
+    : NaN;
+  const roundingFromMd = md.roundingAmount
+    ? Number.parseInt(md.roundingAmount, 10)
+    : NaN;
+  const roundingAmount =
+    Number.isFinite(roundingFromMd) && !Number.isNaN(roundingFromMd)
+      ? Math.max(0, roundingFromMd)
+      : Number.isFinite(chargeFromMd) && Number.isFinite(rawFromMd)
+        ? Math.max(0, chargeFromMd - rawFromMd)
+        : 0;
 
   const supabase = createServiceRoleSupabase();
 
@@ -157,6 +169,7 @@ export async function POST(req: NextRequest) {
     targetRoomNetAmount: hotelNetAmount,
     accommodationTaxAmount: Number.isFinite(taxFromMd) ? Math.max(0, taxFromMd) : 0,
     stripeChargeAmount: Number.isFinite(chargeFromMd) ? Math.max(0, chargeFromMd) : 0,
+    roundingAmount,
   });
 
   const created = await createReservationWithAssignment({
