@@ -76,6 +76,7 @@ type PutRoomSettingPatch = {
   weekday_price?: number;
   friday_price?: number;
   saturday_price?: number;
+  included_guests?: number;
   extra_guest_fee?: number;
   max_guests?: number;
   inventory_cap?: number;
@@ -165,6 +166,12 @@ export async function PUT(req: NextRequest) {
             return adminJson({ error: "Invalid extra_guest_fee" }, 400);
           updates.extra_guest_fee = p.extra_guest_fee;
         }
+        if (p.included_guests !== undefined) {
+          if (!isNonNegInt(p.included_guests) || p.included_guests < 1) {
+            return adminJson({ error: "Invalid included_guests" }, 400);
+          }
+          updates.included_guests = p.included_guests;
+        }
         if (p.max_guests !== undefined) {
           if (!isNonNegInt(p.max_guests) || p.max_guests < 1)
             return adminJson({ error: "Invalid max_guests" }, 400);
@@ -185,6 +192,32 @@ export async function PUT(req: NextRequest) {
             return adminJson({ error: "Invalid display_name" }, 400);
           }
           updates.display_name = p.display_name.trim();
+        }
+
+        if (
+          updates.included_guests !== undefined ||
+          updates.max_guests !== undefined
+        ) {
+          const { data: row } = await supabase
+            .from("public_room_settings")
+            .select("included_guests, max_guests")
+            .eq("property_code", p.property_code)
+            .eq("room_type", p.room_type)
+            .maybeSingle();
+          const nextIncluded =
+            updates.included_guests !== undefined
+              ? (updates.included_guests as number)
+              : (row?.included_guests ?? 1);
+          const nextMax =
+            updates.max_guests !== undefined
+              ? (updates.max_guests as number)
+              : (row?.max_guests ?? 1);
+          if (nextIncluded > nextMax) {
+            return adminJson(
+              { error: "included_guests must be <= max_guests" },
+              400,
+            );
+          }
         }
 
         if (Object.keys(updates).length === 0) continue;
