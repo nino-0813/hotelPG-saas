@@ -75,7 +75,11 @@ export async function POST(req: NextRequest) {
   const c = Number.isFinite(children) ? Number(children) : 0;
   const guestCount = a + c;
   if (guestCount < 1) return bad("adults + children must be >= 1");
-  if (guestCount >= 5) return bad("guestCount must be <= 4");
+  const maxGuests =
+    propertyCode === "PG3" && roomType === "maisonette_6"
+      ? 6
+      : 4;
+  if (guestCount > maxGuests) return bad(`guestCount must be <= ${maxGuests}`);
 
   if (!guestName || typeof guestName !== "string" || !guestName.trim()) {
     return bad("guestName is required");

@@ -8,6 +8,7 @@ const ROOM_TYPE_MAX_GUESTS: Record<string, number> = {
   family: 6,
   washitsu_modern_4: 4,
   washitsu_modern_3: 3,
+  maisonette_6: 6,
 };
 
 /** Fallback nightly rate (yen) for minPrice when rooms.base_price is absent. */
@@ -17,6 +18,7 @@ const ROOM_TYPE_DEFAULT_PRICE: Record<string, number> = {
   family: 12000,
   washitsu_modern_4: 15000,
   washitsu_modern_3: 13000,
+  maisonette_6: 22500,
 };
 
 export type PublicRoomRow = {
