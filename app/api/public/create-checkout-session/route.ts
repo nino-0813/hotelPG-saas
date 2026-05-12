@@ -1,7 +1,6 @@
 import { differenceInCalendarDays, parseISO } from "date-fns";
 import { NextResponse, type NextRequest } from "next/server";
-import { loadPublicStayAvailability } from "@/lib/availability/load-public-stay-availability";
-import { computeStripeWebCheckoutChargeJpy } from "@/lib/stripe/stripe-web-checkout-pricing";
+import { computePublicCheckoutForStay } from "@/lib/stripe/compute-public-checkout-for-stay";
 import { createStripeCheckoutSession } from "@/lib/stripe/stripe-api";
 
 export const runtime = "nodejs";
@@ -92,38 +91,22 @@ export async function POST(req: NextRequest) {
     return bad("guestCount exceeds max_guests");
   }
 
-  let stay;
-  try {
-    stay = await loadPublicStayAvailability({
-      propertyCode,
-      roomType,
-      checkInDate,
-      checkOutDate,
-      adults: a,
-      children: c,
-    });
-  } catch (e) {
-    console.error("[public/create-checkout-session] availability", e);
-    return bad("Availability check failed", 500);
-  }
-
-  const dates = stay.availability.dates;
-  const allBookable = dates.every((d) => d.bookable && d.availableRooms > 0);
-  const hasNullPrice = dates.some((d) => d.minPrice == null);
-  if (!allBookable || hasNullPrice) {
-    return bad("No availability", 409);
-  }
-
-  const targetRoomNetAmount = dates.reduce((sum, d) => sum + (d.minPrice ?? 0), 0);
-  if (!Number.isInteger(targetRoomNetAmount) || targetRoomNetAmount <= 0) {
-    return bad("Invalid price", 409);
-  }
-
-  const charge = computeStripeWebCheckoutChargeJpy({
-    targetRoomNetAmount,
-    guestCount: stay.guestCount,
-    nights: stay.nights,
+  const pricing = await computePublicCheckoutForStay({
+    propertyCode,
+    roomType,
+    checkInDate,
+    checkOutDate,
+    adults: a,
+    children: c,
   });
+  if (!pricing.ok) {
+    if (pricing.status === 500) {
+      console.error("[public/create-checkout-session]", pricing.error);
+      return bad(pricing.error, 500);
+    }
+    return bad(pricing.error, 409);
+  }
+  const charge = pricing.charge;
 
   try {
     const session = await createStripeCheckoutSession({
