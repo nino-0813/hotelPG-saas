@@ -137,11 +137,15 @@ export async function syncOneCalendar(
     }
 
     const smartKeyCode =
-      (pickedRoomKey && pickedRoomKey.trim().length > 0
-        ? pickedRoomKey.trim().slice(0, 40)
-        : null) ??
-      deriveSmartKeyCodeFromPhone(ev.guest_phone) ??
-      deriveSmartKeyCodeFallback(ev.reservation_code ?? ev.uid);
+      cal.target_room_type === "maisonette_6"
+        ? pickedRoomKey && pickedRoomKey.trim().length > 0
+          ? pickedRoomKey.trim().slice(0, 40)
+          : null
+        : (pickedRoomKey && pickedRoomKey.trim().length > 0
+            ? pickedRoomKey.trim().slice(0, 40)
+            : null) ??
+          deriveSmartKeyCodeFromPhone(ev.guest_phone) ??
+          deriveSmartKeyCodeFallback(ev.reservation_code ?? ev.uid);
 
     const noteParts = [
       ev.reservation_code ? `予約コード: ${ev.reservation_code}` : null,
