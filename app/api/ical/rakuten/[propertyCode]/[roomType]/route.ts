@@ -12,6 +12,15 @@ const ALLOWED_ROOM_TYPES: RoomType[] = [
   "washitsu_modern_3",
 ];
 
+/** Sources exported to Rakuten block ICS (whitelist; OTA/iCal imports stay off the feed). */
+const RAKUTEN_ICAL_EXPORT_SOURCES = [
+  "manual",
+  "stripe_web",
+  "blocked",
+  "admin_manual",
+  "website",
+] as const;
+
 function toIcsDate(dateStr: string): string {
   // YYYY-MM-DD -> YYYYMMDD
   return dateStr.replaceAll("-", "");
@@ -134,8 +143,8 @@ export async function GET(
       .from("reservations")
       .select("id, check_in_date, check_out_date, status, updated_at")
       .in("room_id", roomIds)
-      // Only export manual reservations (avoid echoing OTA-imported reservations back to Rakuten)
-      .eq("source", "manual")
+      .not("room_id", "is", null)
+      .in("source", [...RAKUTEN_ICAL_EXPORT_SOURCES])
       .neq("status", "cancelled")
       .gte("check_out_date", todayStr)
       .order("updated_at", { ascending: false });
