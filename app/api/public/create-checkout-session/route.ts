@@ -141,6 +141,7 @@ export async function POST(req: NextRequest) {
         stripeEffectiveFeeRate: String(charge.stripeEffectiveFeeRate),
         rawStripeChargeAmount: String(charge.rawStripeChargeAmount),
         stripeChargeAmount: String(charge.stripeChargeAmount),
+        onlinePaymentFeeAmount: String(charge.onlinePaymentFeeAmount),
         roundingUnit: String(charge.roundingUnit),
         roundingAmount: String(charge.roundingAmount),
         nights: String(charge.nights),

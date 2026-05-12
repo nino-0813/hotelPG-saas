@@ -2,7 +2,7 @@
 export const STRIPE_EFFECTIVE_FEE_RATE = 0.0396;
 
 /** お客様請求額の切り上げ単位（円） */
-export const STRIPE_CHARGE_ROUNDING_UNIT_JPY = 100;
+export const STRIPE_CHARGE_ROUNDING_UNIT_JPY = 1000;
 
 /** 宿泊税: 円 / 人 / 泊（消費税はカタログ料金に内包とみなし別途加算しない） */
 export const ACCOMMODATION_TAX_PER_GUEST_PER_NIGHT_JPY = 200;
@@ -13,6 +13,8 @@ export type StripeWebCheckoutChargeBreakdown = {
   stripeEffectiveFeeRate: number;
   rawStripeChargeAmount: number;
   stripeChargeAmount: number;
+  /** stripeChargeAmount - targetRoomNetAmount - accommodationTaxAmount */
+  onlinePaymentFeeAmount: number;
   roundingAmount: number;
   roundingUnit: number;
   nights: number;
@@ -41,6 +43,7 @@ export function computeStripeWebCheckoutChargeJpy(params: {
     Math.ceil(rawStripeChargeAmount / STRIPE_CHARGE_ROUNDING_UNIT_JPY) *
     STRIPE_CHARGE_ROUNDING_UNIT_JPY;
   const roundingAmount = stripeChargeAmount - rawStripeChargeAmount;
+  const onlinePaymentFeeAmount = stripeChargeAmount - sumNetPlusTax;
 
   return {
     targetRoomNetAmount,
@@ -48,6 +51,7 @@ export function computeStripeWebCheckoutChargeJpy(params: {
     stripeEffectiveFeeRate: STRIPE_EFFECTIVE_FEE_RATE,
     rawStripeChargeAmount,
     stripeChargeAmount,
+    onlinePaymentFeeAmount,
     roundingAmount,
     roundingUnit: STRIPE_CHARGE_ROUNDING_UNIT_JPY,
     nights,

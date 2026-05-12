@@ -135,6 +135,7 @@ export async function POST(req: NextRequest) {
       stripeEffectiveFeeRate: ch.stripeEffectiveFeeRate,
       rawStripeChargeAmount: ch.rawStripeChargeAmount,
       stripeChargeAmount: ch.stripeChargeAmount,
+      onlinePaymentFeeAmount: ch.onlinePaymentFeeAmount,
       roundingUnit: ch.roundingUnit,
       roundingAmount: ch.roundingAmount,
       guestCount: ch.guestCount,

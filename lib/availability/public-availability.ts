@@ -45,6 +45,7 @@ export type PublicDateCheckoutEstimate = {
   accommodationTaxAmount: number;
   rawStripeChargeAmount: number;
   stripeChargeAmount: number;
+  onlinePaymentFeeAmount: number;
   roundingAmount: number;
   roundingUnit: number;
   stripeEffectiveFeeRate: number;
@@ -153,6 +154,7 @@ function withCheckoutEstimate(
       accommodationTaxAmount: b.accommodationTaxAmount,
       rawStripeChargeAmount: b.rawStripeChargeAmount,
       stripeChargeAmount: b.stripeChargeAmount,
+      onlinePaymentFeeAmount: b.onlinePaymentFeeAmount,
       roundingAmount: b.roundingAmount,
       roundingUnit: b.roundingUnit,
       stripeEffectiveFeeRate: b.stripeEffectiveFeeRate,
