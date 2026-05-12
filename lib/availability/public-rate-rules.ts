@@ -103,8 +103,8 @@ export function validatePg3WashitsuWebGuestCount(
   if (roomType === "washitsu_modern_3" && guestCount > 3) {
     return "guestCount exceeds max_guests for washitsu_modern_3";
   }
-  if (roomType === "washitsu_modern_4" && guestCount !== 4) {
-    return "washitsu_modern_4 requires exactly 4 guests";
+  if (roomType === "washitsu_modern_4" && guestCount > 4) {
+    return "PG-III 4名タイプは1〜4名までご予約できます";
   }
   return null;
 }
