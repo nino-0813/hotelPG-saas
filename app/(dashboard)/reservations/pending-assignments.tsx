@@ -457,6 +457,7 @@ const ROOM_TYPE_SORT: Record<RoomType, number> = {
   family: 2,
   washitsu_modern_4: 3,
   washitsu_modern_3: 4,
+  maisonette_6: 5,
 };
 
 function buildPendingGroups(

@@ -5,7 +5,9 @@ export type RoomType =
   /** HOTEL PG-III 楽天プラン別（和モダン 最大4名） */
   | "washitsu_modern_4"
   /** HOTEL PG-III 楽天プラン別（和モダン 最大3名・長期滞在） */
-  | "washitsu_modern_3";
+  | "washitsu_modern_3"
+  /** HOTEL PG-III 楽天プラン別（メゾネット洋室 最大6名） */
+  | "maisonette_6";
 export type StaffRole = "admin" | "staff";
 export type PaymentMethod = "online" | "onsite";
 export type ReservationStatus =

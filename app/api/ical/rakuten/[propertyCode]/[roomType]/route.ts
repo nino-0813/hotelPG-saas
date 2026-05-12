@@ -10,6 +10,7 @@ const ALLOWED_ROOM_TYPES: RoomType[] = [
   "single",
   "washitsu_modern_4",
   "washitsu_modern_3",
+  "maisonette_6",
 ];
 
 /** Sources exported to Rakuten block ICS (whitelist; OTA/iCal imports stay off the feed). */
