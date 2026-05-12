@@ -1,27 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServiceRoleSupabase } from "@/lib/supabase/service-role";
 import { verifyStripeSignature } from "@/lib/stripe/stripe-signature";
-import { addDays, differenceInCalendarDays, format, parseISO } from "date-fns";
-import {
-  computePublicAvailabilityByDate,
-  type PublicReservationRow,
-  type PublicRoomRow,
-} from "@/lib/availability/public-availability";
-import { listPriceFromRoomSetting } from "@/lib/availability/list-price-from-db-setting";
-import { resolvePublicAvailabilityCap } from "@/lib/availability/public-inventory-caps";
-import {
-  computeListPriceForNight,
-  hasListPriceRule,
-} from "@/lib/availability/public-rate-rules";
-import type {
-  PublicInventoryCapRow,
-  PublicRoomSettingRow,
-} from "@/lib/types/public-catalog";
+import { loadPublicStayAvailability } from "@/lib/availability/load-public-stay-availability";
+import { formatStripeWebReservationSpecialNotes } from "@/lib/stripe/stripe-web-checkout-pricing";
 import { createReservationWithAssignment } from "@/lib/reservations/create-reservation-with-assignment";
-import {
-  pendingUnassignedMatchAndClause,
-  resolveDbRoomTypesForBooking,
-} from "@/lib/reservations/room-types-for-booking";
 import { insertStripeWebhookLog } from "@/lib/stripe/webhook-event-log";
 
 export const runtime = "nodejs";
@@ -37,127 +19,6 @@ type StripeEvent = {
     };
   };
 };
-
-type PropertyRow = { id: string; code: string };
-
-function resolveRoomTypesForFilter(
-  propertyCode: string,
-  roomTypeParam: string,
-): string[] {
-  return resolveDbRoomTypesForBooking(propertyCode, roomTypeParam);
-}
-
-async function loadAvailabilityForStay(params: {
-  propertyCode: string;
-  roomType: string;
-  checkInDate: string;
-  checkOutDate: string;
-  adults: number;
-  children: number;
-}) {
-  const { propertyCode, roomType, checkInDate, checkOutDate, adults, children } =
-    params;
-  const guestCount = Math.max(1, adults + children);
-  const nights = differenceInCalendarDays(
-    parseISO(`${checkOutDate}T00:00:00`),
-    parseISO(`${checkInDate}T00:00:00`),
-  );
-
-  const supabase = createServiceRoleSupabase();
-
-  const { data: prop } = await supabase
-    .from("properties")
-    .select("id, code")
-    .eq("code", propertyCode)
-    .maybeSingle();
-  if (!prop) throw new Error("Unknown propertyCode");
-
-  const roomTypesFilter = resolveRoomTypesForFilter(prop.code, roomType);
-  const unassignedPart = pendingUnassignedMatchAndClause(prop.id, roomTypesFilter);
-
-  let roomsQ = supabase
-    .from("rooms")
-    .select("id, property_id, room_type, room_number, display_order")
-    .eq("property_id", (prop as PropertyRow).id);
-  roomsQ =
-    roomTypesFilter.length === 1
-      ? roomsQ.eq("room_type", roomTypesFilter[0])
-      : roomsQ.in("room_type", roomTypesFilter);
-
-  const { data: roomsRaw } = await roomsQ.returns<PublicRoomRow[]>();
-  const rooms = roomsRaw ?? [];
-  const roomIds = rooms.map((r) => r.id);
-
-  const lastNight = format(
-    addDays(parseISO(`${checkInDate}T12:00:00`), nights - 1),
-    "yyyy-MM-dd",
-  );
-
-  const { data: reservationsRaw } = await supabase
-    .from("reservations")
-    .select(
-      "room_id, requested_room_type, requested_property_id, check_in_date, check_out_date, status",
-    )
-    .in("status", ["confirmed", "checked_in", "blocked", "manual"])
-    .lte("check_in_date", lastNight)
-    .gt("check_out_date", checkInDate)
-    .or(
-      roomIds.length > 0
-        ? [`room_id.in.(${roomIds.join(",")})`, unassignedPart].join(",")
-        : unassignedPart,
-    )
-    .returns<PublicReservationRow[]>();
-  const reservations = reservationsRaw ?? [];
-
-  const [rsRes, icRes] = await Promise.all([
-    supabase
-      .from("public_room_settings")
-      .select("*")
-      .eq("property_code", (prop as PropertyRow).code)
-      .eq("room_type", roomType)
-      .maybeSingle(),
-    supabase
-      .from("public_inventory_caps")
-      .select("*")
-      .eq("property_code", (prop as PropertyRow).code)
-      .eq("room_type", roomType),
-  ]);
-
-  const dbRoomSetting = (rsRes.data as PublicRoomSettingRow | null) ?? null;
-  const dbInventoryCaps = (icRes.data as PublicInventoryCapRow[] | null) ?? [];
-
-  const hasDbPrice = dbRoomSetting !== null && dbRoomSetting.is_active === true;
-  const hasCodePrice = !hasDbPrice && hasListPriceRule((prop as PropertyRow).code, roomType);
-  const listPriceForDate =
-    hasDbPrice || hasCodePrice
-      ? (dateYmd: string, gc: number) =>
-          hasDbPrice
-            ? listPriceFromRoomSetting(dbRoomSetting!, dateYmd, gc)
-            : computeListPriceForNight((prop as PropertyRow).code, roomType, dateYmd, gc)
-      : undefined;
-
-  const availabilityCap = resolvePublicAvailabilityCap(
-    (prop as PropertyRow).code,
-    roomType,
-    roomTypesFilter,
-    guestCount,
-    dbInventoryCaps,
-  );
-
-  const body = computePublicAvailabilityByDate(
-    checkInDate,
-    nights,
-    guestCount,
-    rooms,
-    reservations,
-    {
-      ...(listPriceForDate ? { listPriceForDate } : {}),
-      ...(availabilityCap != null ? { availabilityCap } : {}),
-    },
-  );
-
-  return { prop: prop as PropertyRow, nights, guestCount, availability: body };
-}
 
 export async function POST(req: NextRequest) {
   const rawBody = await req.text();
@@ -195,7 +56,15 @@ export async function POST(req: NextRequest) {
   const guestName = md.guestName ?? "";
   const guestEmail = md.guestEmail ?? "";
   const guestPhone = md.guestPhone ?? null;
-  const totalAmount = Number.parseInt(md.totalAmount ?? "0", 10);
+
+  const targetNetFromMd = md.targetRoomNetAmount
+    ? Number.parseInt(md.targetRoomNetAmount, 10)
+    : Number.parseInt(md.totalAmount ?? "0", 10);
+  const taxFromMd = Number.parseInt(md.accommodationTaxAmount ?? "0", 10);
+  const chargeFromMd = Number.parseInt(
+    md.stripeChargeAmount ?? md.totalAmount ?? "0",
+    10,
+  );
 
   const supabase = createServiceRoleSupabase();
 
@@ -228,7 +97,7 @@ export async function POST(req: NextRequest) {
 
   let stay;
   try {
-    stay = await loadAvailabilityForStay({
+    stay = await loadPublicStayAvailability({
       propertyCode,
       roomType,
       checkInDate,
@@ -281,8 +150,14 @@ export async function POST(req: NextRequest) {
     1,
     (Number.isFinite(adults) ? adults : 0) + (Number.isFinite(children) ? children : 0),
   );
-  const amt = Number.isFinite(totalAmount) ? totalAmount : 0;
-  const specialNotes = `【公式サイト / Stripe】\n料金（合計）: ¥${amt.toLocaleString("ja-JP")}`;
+  const hotelNetAmount = Number.isFinite(targetNetFromMd)
+    ? Math.max(0, targetNetFromMd)
+    : 0;
+  const specialNotes = formatStripeWebReservationSpecialNotes({
+    targetRoomNetAmount: hotelNetAmount,
+    accommodationTaxAmount: Number.isFinite(taxFromMd) ? Math.max(0, taxFromMd) : 0,
+    stripeChargeAmount: Number.isFinite(chargeFromMd) ? Math.max(0, chargeFromMd) : 0,
+  });
 
   const created = await createReservationWithAssignment({
     supabase,
@@ -297,7 +172,7 @@ export async function POST(req: NextRequest) {
     source: "stripe_web",
     paymentMethod: "online",
     stripeSessionId: sessionId,
-    totalAmount: amt,
+    totalAmount: hotelNetAmount,
     specialNotes,
     stripeEventId: event.id,
   });

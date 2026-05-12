@@ -1,26 +1,8 @@
-import { addDays, differenceInCalendarDays, format, parseISO } from "date-fns";
+import { differenceInCalendarDays, parseISO } from "date-fns";
 import { NextResponse, type NextRequest } from "next/server";
-import { createServiceRoleSupabase } from "@/lib/supabase/service-role";
-import {
-  computePublicAvailabilityByDate,
-  type PublicReservationRow,
-  type PublicRoomRow,
-} from "@/lib/availability/public-availability";
-import { listPriceFromRoomSetting } from "@/lib/availability/list-price-from-db-setting";
-import { resolvePublicAvailabilityCap } from "@/lib/availability/public-inventory-caps";
-import {
-  computeListPriceForNight,
-  hasListPriceRule,
-} from "@/lib/availability/public-rate-rules";
-import type {
-  PublicInventoryCapRow,
-  PublicRoomSettingRow,
-} from "@/lib/types/public-catalog";
+import { loadPublicStayAvailability } from "@/lib/availability/load-public-stay-availability";
+import { computeStripeWebCheckoutChargeJpy } from "@/lib/stripe/stripe-web-checkout-pricing";
 import { createStripeCheckoutSession } from "@/lib/stripe/stripe-api";
-import {
-  pendingUnassignedMatchAndClause,
-  resolveDbRoomTypesForBooking,
-} from "@/lib/reservations/room-types-for-booking";
 
 export const runtime = "nodejs";
 
@@ -56,129 +38,6 @@ function isValidYmd(s: string): boolean {
 
 function bad(msg: string, status = 400) {
   return NextResponse.json({ error: msg }, { status, headers: corsJsonHeaders });
-}
-
-function resolveRoomTypesForFilter(
-  propertyCode: string,
-  roomTypeParam: string,
-): string[] {
-  return resolveDbRoomTypesForBooking(propertyCode, roomTypeParam);
-}
-
-async function loadAvailabilityForStay(params: {
-  propertyCode: string;
-  roomType: string;
-  checkInDate: string;
-  checkOutDate: string;
-  adults: number;
-  children: number;
-}) {
-  const { propertyCode, roomType, checkInDate, checkOutDate, adults, children } =
-    params;
-  const guestCount = Math.max(1, adults + children);
-  const nights = differenceInCalendarDays(
-    parseISO(`${checkOutDate}T00:00:00`),
-    parseISO(`${checkInDate}T00:00:00`),
-  );
-
-  const supabase = createServiceRoleSupabase();
-
-  const { data: prop, error: propErr } = await supabase
-    .from("properties")
-    .select("id, code")
-    .eq("code", propertyCode)
-    .maybeSingle();
-  if (propErr || !prop) {
-    throw new Error("Unknown propertyCode");
-  }
-
-  const roomTypesFilter = resolveRoomTypesForFilter(prop.code, roomType);
-  const unassignedPart = pendingUnassignedMatchAndClause(prop.id, roomTypesFilter);
-
-  let roomsQ = supabase
-    .from("rooms")
-    .select("id, property_id, room_type, room_number, display_order")
-    .eq("property_id", prop.id);
-  roomsQ =
-    roomTypesFilter.length === 1
-      ? roomsQ.eq("room_type", roomTypesFilter[0])
-      : roomsQ.in("room_type", roomTypesFilter);
-
-  const { data: roomsRaw, error: roomsErr } = await roomsQ.returns<PublicRoomRow[]>();
-  if (roomsErr) throw new Error("Failed to load rooms");
-  const rooms = roomsRaw ?? [];
-  const roomIds = rooms.map((r) => r.id);
-
-  const lastNight = format(
-    addDays(parseISO(`${checkInDate}T12:00:00`), nights - 1),
-    "yyyy-MM-dd",
-  );
-
-  const { data: reservationsRaw, error: resErr } = await supabase
-    .from("reservations")
-    .select(
-      "room_id, requested_room_type, requested_property_id, check_in_date, check_out_date, status",
-    )
-    .in("status", ["confirmed", "checked_in", "blocked", "manual"])
-    .lte("check_in_date", lastNight)
-    .gt("check_out_date", checkInDate)
-    .or(
-      roomIds.length > 0
-        ? [`room_id.in.(${roomIds.join(",")})`, unassignedPart].join(",")
-        : unassignedPart,
-    )
-    .returns<PublicReservationRow[]>();
-  if (resErr) throw new Error("Failed to load reservations");
-  const reservations = reservationsRaw ?? [];
-
-  const [rsRes, icRes] = await Promise.all([
-    supabase
-      .from("public_room_settings")
-      .select("*")
-      .eq("property_code", prop.code)
-      .eq("room_type", roomType)
-      .maybeSingle(),
-    supabase
-      .from("public_inventory_caps")
-      .select("*")
-      .eq("property_code", prop.code)
-      .eq("room_type", roomType),
-  ]);
-
-  const dbRoomSetting = (rsRes.data as PublicRoomSettingRow | null) ?? null;
-  const dbInventoryCaps = (icRes.data as PublicInventoryCapRow[] | null) ?? [];
-
-  const hasDbPrice = dbRoomSetting !== null && dbRoomSetting.is_active === true;
-  const hasCodePrice = !hasDbPrice && hasListPriceRule(prop.code, roomType);
-  const listPriceForDate =
-    hasDbPrice || hasCodePrice
-      ? (dateYmd: string, gc: number) =>
-          hasDbPrice
-            ? listPriceFromRoomSetting(dbRoomSetting!, dateYmd, gc)
-            : computeListPriceForNight(prop.code, roomType, dateYmd, gc)
-      : undefined;
-
-  const availabilityCap = resolvePublicAvailabilityCap(
-    prop.code,
-    roomType,
-    roomTypesFilter,
-    guestCount,
-    dbInventoryCaps,
-  );
-
-  const body = computePublicAvailabilityByDate(
-    checkInDate,
-    nights,
-    guestCount,
-    rooms,
-    reservations,
-    {
-      ...(listPriceForDate ? { listPriceForDate } : {}),
-      ...(availabilityCap != null ? { availabilityCap } : {}),
-    },
-  );
-
-  return { prop, nights, guestCount, availability: body };
 }
 
 export async function POST(req: NextRequest) {
@@ -226,7 +85,6 @@ export async function POST(req: NextRequest) {
   }
   if (!successUrl || !cancelUrl) return bad("successUrl and cancelUrl are required");
 
-  // Validate max guests by catalog rules (requested in spec).
   if (
     (propertyCode === "PG2" && roomType === "family" && guestCount > 4) ||
     (propertyCode === "PG3" && roomType === "family" && guestCount > 4)
@@ -236,8 +94,7 @@ export async function POST(req: NextRequest) {
 
   let stay;
   try {
-    // Re-check availability right before checkout creation.
-    stay = await loadAvailabilityForStay({
+    stay = await loadPublicStayAvailability({
       propertyCode,
       roomType,
       checkInDate,
@@ -257,14 +114,20 @@ export async function POST(req: NextRequest) {
     return bad("No availability", 409);
   }
 
-  const totalAmount = dates.reduce((sum, d) => sum + (d.minPrice ?? 0), 0);
-  if (!Number.isInteger(totalAmount) || totalAmount <= 0) {
+  const targetRoomNetAmount = dates.reduce((sum, d) => sum + (d.minPrice ?? 0), 0);
+  if (!Number.isInteger(targetRoomNetAmount) || targetRoomNetAmount <= 0) {
     return bad("Invalid price", 409);
   }
 
+  const charge = computeStripeWebCheckoutChargeJpy({
+    targetRoomNetAmount,
+    guestCount: stay.guestCount,
+    nights: stay.nights,
+  });
+
   try {
     const session = await createStripeCheckoutSession({
-      amountJpy: totalAmount,
+      amountJpy: charge.stripeChargeAmount,
       customerEmail: guestEmail,
       successUrl,
       cancelUrl,
@@ -278,7 +141,13 @@ export async function POST(req: NextRequest) {
         guestName: guestName.trim().slice(0, 60),
         guestEmail: guestEmail.trim().slice(0, 120),
         guestPhone: (guestPhone ?? "").toString().slice(0, 30),
-        totalAmount: String(totalAmount),
+        targetRoomNetAmount: String(charge.targetRoomNetAmount),
+        accommodationTaxAmount: String(charge.accommodationTaxAmount),
+        stripeFeeRate: String(charge.stripeFeeRate),
+        stripeChargeAmount: String(charge.stripeChargeAmount),
+        nights: String(charge.nights),
+        guestCount: String(charge.guestCount),
+        totalAmount: String(charge.stripeChargeAmount),
         source: "stripe_web",
       },
     });
@@ -292,4 +161,3 @@ export async function POST(req: NextRequest) {
     return bad("Failed to create checkout session", 500);
   }
 }
-

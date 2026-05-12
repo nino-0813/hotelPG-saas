@@ -1,4 +1,5 @@
 import { addDays, format, parseISO } from "date-fns";
+import { computeStripeWebCheckoutChargeJpy } from "@/lib/stripe/stripe-web-checkout-pricing";
 
 /** Max guests per room_type when DB has no capacity column. */
 const ROOM_TYPE_MAX_GUESTS: Record<string, number> = {
@@ -36,11 +37,20 @@ export type PublicReservationRow = {
   status: string;
 };
 
+/** 1泊分を想定した Stripe 請求見積（カレンダー1マス = その日の 1 泊） */
+export type PublicDateCheckoutEstimate = {
+  targetRoomNetAmount: number;
+  accommodationTaxAmount: number;
+  stripeFeeRate: number;
+  stripeChargeAmount: number;
+};
+
 export type PublicDateAvailability = {
   date: string;
   availableRooms: number;
   minPrice: number | null;
   bookable: boolean;
+  checkoutEstimate?: PublicDateCheckoutEstimate | null;
 };
 
 export type PublicAvailabilityComputeOptions = {
@@ -52,6 +62,16 @@ export type PublicAvailabilityComputeOptions = {
   listPriceForDate?: (dateYmd: string, guestCount: number) => number | null;
   /** When set, each night’s `availableRooms` is at most this value (after occupancy math). */
   availabilityCap?: number | null;
+  /**
+   * Optional per-night cap override (e.g. seasonal `inventory_cap_override`).
+   * When this returns a non-null finite number ≥ 0, it wins over {@link availabilityCap} for that date.
+   */
+  availabilityCapForDate?: (dateYmd: string) => number | null;
+  /**
+   * When true, each bookable night with a numeric `minPrice` adds `checkoutEstimate`
+   * (1-night stay: 宿泊税 + Stripe 手数料込みの請求見積).
+   */
+  includeStripeWebCheckoutEstimate?: boolean;
   /**
    * Development-only debug metadata. If provided and NODE_ENV=development, logs per-night occupancy math.
    * Never include any reservation PII here.
@@ -105,6 +125,33 @@ function countsTowardOccupancy(status: string): boolean {
 
 type PropertyTypeKey = `${string}|${string}`;
 
+function withCheckoutEstimate(
+  row: PublicDateAvailability,
+  partySize: number,
+  options?: PublicAvailabilityComputeOptions,
+): PublicDateAvailability {
+  if (!options?.includeStripeWebCheckoutEstimate) return row;
+  if (row.availableRooms < 1) return row;
+  const p = row.minPrice;
+  if (p == null || !Number.isFinite(p) || p <= 0) {
+    return { ...row, checkoutEstimate: null };
+  }
+  const b = computeStripeWebCheckoutChargeJpy({
+    targetRoomNetAmount: p,
+    guestCount: partySize,
+    nights: 1,
+  });
+  return {
+    ...row,
+    checkoutEstimate: {
+      targetRoomNetAmount: b.targetRoomNetAmount,
+      accommodationTaxAmount: b.accommodationTaxAmount,
+      stripeFeeRate: b.stripeFeeRate,
+      stripeChargeAmount: b.stripeChargeAmount,
+    },
+  };
+}
+
 /**
  * Computes per-day aggregate availability for the public calendar API.
  * Does not expose any reservation PII — only derived counts and prices.
@@ -126,10 +173,20 @@ export function computePublicAvailabilityByDate(
   const sellable = rooms.filter((r) => isRoomSellable(r, partySize));
 
   const dates: PublicDateAvailability[] = dateStrings.map((d) => {
+    const overrideCap = options?.availabilityCapForDate?.(d);
+    const capForD =
+      overrideCap != null && Number.isFinite(overrideCap) && overrideCap >= 0
+        ? overrideCap
+        : options?.availabilityCap != null &&
+            Number.isFinite(options.availabilityCap) &&
+            options.availabilityCap >= 0
+          ? options.availabilityCap
+          : null;
+
     // For scoped (single product) mode we support a safer cap order:
     // cappedBase = min(totalPhysicalRooms, inventoryCap)
     // availableRooms = max(0, cappedBase - bookedCount)
-    if (options?.availabilityCap != null) {
+    if (capForD != null) {
       const roomIdSet = new Set(sellable.map((r) => r.id));
 
       const bookedRoomIds: string[] = [];
@@ -150,12 +207,12 @@ export function computePublicAvailabilityByDate(
       const bookedAssignedCount = new Set(bookedRoomIds).size;
       const bookedCount = bookedAssignedCount + unassignedCount;
       const totalPhysicalRooms = sellable.length;
-      const cappedBase = Math.min(totalPhysicalRooms, options.availabilityCap);
+      const cappedBase = Math.min(totalPhysicalRooms, capForD);
       const availableRooms = Math.max(0, cappedBase - bookedCount);
 
       let minPrice: number | null = null;
       if (availableRooms > 0) {
-        if (options.listPriceForDate) {
+        if (options?.listPriceForDate) {
           const listed = options.listPriceForDate(d, partySize);
           if (listed != null && Number.isFinite(listed)) minPrice = listed;
         }
@@ -170,30 +227,35 @@ export function computePublicAvailabilityByDate(
         }
       }
 
-      if (process.env.NODE_ENV === "development" && options.debug) {
+      if (process.env.NODE_ENV === "development" && options?.debug) {
+        const dbg = options.debug;
         console.log("[public/availability][debug]", {
-          propertyCode: options.debug.propertyCode,
-          propertyId: options.debug.propertyId,
-          roomType: options.debug.roomType,
+          propertyCode: dbg.propertyCode,
+          propertyId: dbg.propertyId,
+          roomType: dbg.roomType,
           date: d,
-          roomIds: options.debug.roomIds,
-          reservationsFetchedCount: options.debug.reservationsFetchedCount,
+          roomIds: dbg.roomIds,
+          reservationsFetchedCount: dbg.reservationsFetchedCount,
           reservationsCountedForOccupancy: bookedCount,
           bookedRoomIds: Array.from(new Set(bookedRoomIds)),
           nullRoomIdReservationsCount: unassignedCount,
           totalPhysicalRooms,
-          availabilityCap: options.availabilityCap,
+          availabilityCap: capForD,
           cappedBase,
           finalAvailableRooms: availableRooms,
         });
       }
 
-      return {
-        date: d,
-        availableRooms,
-        minPrice,
-        bookable: availableRooms >= 1,
-      };
+      return withCheckoutEstimate(
+        {
+          date: d,
+          availableRooms,
+          minPrice,
+          bookable: availableRooms >= 1,
+        },
+        partySize,
+        options,
+      );
     }
 
     const assignedOccupied = new Set<string>();
@@ -282,7 +344,7 @@ export function computePublicAvailabilityByDate(
       }
     }
 
-    const cap = options?.availabilityCap;
+    const cap = capForD;
     if (cap != null && Number.isFinite(cap) && cap >= 0) {
       availableRooms = Math.min(availableRooms, cap);
     }
@@ -299,12 +361,16 @@ export function computePublicAvailabilityByDate(
       }
     }
 
-    return {
-      date: d,
-      availableRooms,
-      minPrice,
-      bookable: availableRooms >= 1,
-    };
+    return withCheckoutEstimate(
+      {
+        date: d,
+        availableRooms,
+        minPrice,
+        bookable: availableRooms >= 1,
+      },
+      partySize,
+      options,
+    );
   });
 
   return { start: startDate, days, dates };

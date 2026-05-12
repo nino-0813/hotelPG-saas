@@ -1,20 +1,24 @@
 import { addDays, format, parseISO } from "date-fns";
 import { NextResponse, type NextRequest } from "next/server";
-import { listPriceFromRoomSetting } from "@/lib/availability/list-price-from-db-setting";
 import {
   computePublicAvailabilityByDate,
   type PublicReservationRow,
   type PublicRoomRow,
 } from "@/lib/availability/public-availability";
+import { buildPublicListPriceForDate } from "@/lib/availability/public-catalog-pricing";
 import { resolvePublicAvailabilityCap } from "@/lib/availability/public-inventory-caps";
 import {
-  computeListPriceForNight,
   hasListPriceRule,
   resolvePg3RoomTypesForFilter,
 } from "@/lib/availability/public-rate-rules";
+import {
+  fetchSeasonalRoomRatesForWindow,
+  pickBestSeasonalRateForDate,
+} from "@/lib/availability/seasonal-room-rates";
 import type {
   PublicInventoryCapRow,
   PublicRoomSettingRow,
+  PublicSeasonalRoomRateRow,
 } from "@/lib/types/public-catalog";
 import { createServiceRoleSupabase } from "@/lib/supabase/service-role";
 
@@ -292,9 +296,10 @@ export async function GET(req: NextRequest) {
 
     let dbRoomSetting: PublicRoomSettingRow | null = null;
     let dbInventoryCaps: PublicInventoryCapRow[] | null = null;
+    let seasonalRows: PublicSeasonalRoomRateRow[] = [];
 
     if (rateCode && rateRoomType) {
-      const [rsRes, icRes] = await Promise.all([
+      const [rsRes, icRes, seasonal] = await Promise.all([
         supabase
           .from("public_room_settings")
           .select("*")
@@ -306,7 +311,15 @@ export async function GET(req: NextRequest) {
           .select("*")
           .eq("property_code", rateCode)
           .eq("room_type", rateRoomType),
+        fetchSeasonalRoomRatesForWindow(supabase, {
+          propertyCode: rateCode,
+          roomType: rateRoomType,
+          startYmd: start,
+          endYmd: lastDateStr,
+        }),
       ]);
+
+      seasonalRows = seasonal;
 
       if (rsRes.error) {
         console.error("[public/availability] public_room_settings", rsRes.error);
@@ -328,18 +341,16 @@ export async function GET(req: NextRequest) {
       rateCode !== null &&
       rateRoomType !== null &&
       hasListPriceRule(rateCode, rateRoomType);
+    const hasSeasonal = seasonalRows.length > 0;
 
     const listPriceForDateFn =
-      hasDbPrice || hasCodePrice
-        ? (dateYmd: string, guestCount: number) =>
-            hasDbPrice
-              ? listPriceFromRoomSetting(dbRoomSetting!, dateYmd, guestCount)
-              : computeListPriceForNight(
-                  rateCode!,
-                  rateRoomType!,
-                  dateYmd,
-                  guestCount,
-                )
+      hasDbPrice || hasCodePrice || hasSeasonal
+        ? buildPublicListPriceForDate({
+            propertyCode: rateCode!,
+            roomType: rateRoomType!,
+            dbRoomSetting,
+            seasonalRows,
+          })
         : undefined;
 
     const availabilityCap = resolvePublicAvailabilityCap(
@@ -350,14 +361,35 @@ export async function GET(req: NextRequest) {
       dbInventoryCaps,
     );
 
+    const availabilityCapForDate =
+      rateCode && rateRoomType
+        ? (dateYmd: string) => {
+            const o = pickBestSeasonalRateForDate(
+              seasonalRows,
+              dateYmd,
+            )?.inventory_cap_override;
+            if (o != null && Number.isFinite(o) && o >= 0) return o;
+            return null;
+          }
+        : undefined;
+
     const computeOptions =
-      listPriceForDateFn || availabilityCap != null
+      listPriceForDateFn != null ||
+      availabilityCap != null ||
+      (availabilityCapForDate != null && rateCode && rateRoomType) ||
+      (rateCode && rateRoomType)
         ? {
             ...(listPriceForDateFn
               ? { listPriceForDate: listPriceForDateFn }
               : {}),
             ...(availabilityCap != null
               ? { availabilityCap }
+              : {}),
+            ...(rateCode && rateRoomType && availabilityCapForDate
+              ? { availabilityCapForDate }
+              : {}),
+            ...(rateCode && rateRoomType
+              ? { includeStripeWebCheckoutEstimate: true as const }
               : {}),
             ...(process.env.NODE_ENV === "development"
               ? {

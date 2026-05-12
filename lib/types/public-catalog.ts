@@ -27,3 +27,23 @@ export type PublicInventoryCapRow = {
   created_at: string;
   updated_at: string;
 };
+
+/** Row from `public.public_seasonal_room_rates` (date-range price / cap overrides). */
+export type PublicSeasonalRoomRateRow = {
+  id: string;
+  property_code: string;
+  room_type: string;
+  name: string;
+  start_date: string;
+  end_date: string;
+  weekday_price: number;
+  friday_price: number;
+  saturday_price: number;
+  included_guests: number | null;
+  extra_guest_fee: number | null;
+  inventory_cap_override: number | null;
+  is_active: boolean;
+  priority: number;
+  created_at: string;
+  updated_at: string;
+};
