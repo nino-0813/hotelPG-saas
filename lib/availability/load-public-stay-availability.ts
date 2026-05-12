@@ -7,7 +7,11 @@ import {
 } from "@/lib/availability/public-availability";
 import { buildPublicListPriceForDate } from "@/lib/availability/public-catalog-pricing";
 import { resolvePublicAvailabilityCap } from "@/lib/availability/public-inventory-caps";
-import { hasListPriceRule } from "@/lib/availability/public-rate-rules";
+import {
+  hasListPriceRule,
+  resolvePg3WebCatalogRoomType,
+} from "@/lib/availability/public-rate-rules";
+import { fetchGuestPriceRulesForCatalog } from "@/lib/availability/guest-price-rules";
 import {
   fetchSeasonalRoomRatesForWindow,
   pickBestSeasonalRateForDate,
@@ -22,13 +26,6 @@ import {
 } from "@/lib/reservations/room-types-for-booking";
 
 type PropertyRow = { id: string; code: string };
-
-function resolveRoomTypesForFilter(
-  propertyCode: string,
-  roomTypeParam: string,
-): string[] {
-  return resolveDbRoomTypesForBooking(propertyCode, roomTypeParam);
-}
 
 /**
  * Same availability + pricing stack as `/api/public/create-checkout-session`
@@ -67,7 +64,15 @@ export async function loadPublicStayAvailability(params: {
   }
 
   const p = prop as PropertyRow;
-  const roomTypesFilter = resolveRoomTypesForFilter(p.code, roomType);
+  const catalogRoomType =
+    p.code === "PG3"
+      ? resolvePg3WebCatalogRoomType(p.code, roomType, guestCount)
+      : roomType;
+  const roomTypesFilter = resolveDbRoomTypesForBooking(
+    p.code,
+    roomType,
+    guestCount,
+  );
   const unassignedPart = pendingUnassignedMatchAndClause(p.id, roomTypesFilter);
 
   let roomsQ = supabase
@@ -106,23 +111,27 @@ export async function loadPublicStayAvailability(params: {
   if (resErr) throw new Error("Failed to load reservations");
   const reservations = reservationsRaw ?? [];
 
-  const [rsRes, icRes, seasonalRows] = await Promise.all([
+  const [rsRes, icRes, seasonalRows, guestPriceRules] = await Promise.all([
     supabase
       .from("public_room_settings")
       .select("*")
       .eq("property_code", p.code)
-      .eq("room_type", roomType)
+      .eq("room_type", catalogRoomType)
       .maybeSingle(),
     supabase
       .from("public_inventory_caps")
       .select("*")
       .eq("property_code", p.code)
-      .eq("room_type", roomType),
+      .eq("room_type", catalogRoomType),
     fetchSeasonalRoomRatesForWindow(supabase, {
       propertyCode: p.code,
-      roomType,
+      roomType: catalogRoomType,
       startYmd: checkInDate,
       endYmd: lastNight,
+    }),
+    fetchGuestPriceRulesForCatalog(supabase, {
+      propertyCode: p.code,
+      roomType: catalogRoomType,
     }),
   ]);
 
@@ -130,21 +139,23 @@ export async function loadPublicStayAvailability(params: {
   const dbInventoryCaps = (icRes.data as PublicInventoryCapRow[] | null) ?? [];
 
   const hasDbPrice = dbRoomSetting !== null && dbRoomSetting.is_active === true;
-  const hasCodePrice = !hasDbPrice && hasListPriceRule(p.code, roomType);
+  const hasCodePrice = !hasDbPrice && hasListPriceRule(p.code, catalogRoomType);
   const hasSeasonal = seasonalRows.length > 0;
+  const hasGuestPriceRules = guestPriceRules.length > 0;
   const listPriceForDate =
-    hasDbPrice || hasCodePrice || hasSeasonal
+    hasDbPrice || hasCodePrice || hasSeasonal || hasGuestPriceRules
       ? buildPublicListPriceForDate({
           propertyCode: p.code,
-          roomType,
+          roomType: catalogRoomType,
           dbRoomSetting,
           seasonalRows,
+          guestPriceRules,
         })
       : undefined;
 
   const availabilityCap = resolvePublicAvailabilityCap(
     p.code,
-    roomType,
+    catalogRoomType,
     roomTypesFilter,
     guestCount,
     dbInventoryCaps,

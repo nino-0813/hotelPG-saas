@@ -1,11 +1,28 @@
-import { resolvePg3RoomTypesForFilter } from "@/lib/availability/public-rate-rules";
+import {
+  resolvePg3RoomTypesForFilter,
+  resolvePg3WebCatalogRoomType,
+} from "@/lib/availability/public-rate-rules";
 
-/** Web / Stripe `roomType` → DB `rooms.room_type` values (PG3 aliases expanded). */
+/**
+ * Web / Stripe `roomType` → DB `rooms.room_type` values.
+ * PG3 `family` / `standard` with `guestCount` → single washitsu band (website / Checkout).
+ * Without `guestCount`, PG3 `family` / `standard` still expands to both (iCal / legacy).
+ */
 export function resolveDbRoomTypesForBooking(
   propertyCode: string,
   channelRoomType: string,
+  guestCount?: number,
 ): string[] {
   if (propertyCode === "PG3") {
+    const v = channelRoomType.toLowerCase();
+    if (
+      (v === "family" || v === "standard") &&
+      guestCount !== undefined
+    ) {
+      return [
+        resolvePg3WebCatalogRoomType(propertyCode, channelRoomType, guestCount),
+      ];
+    }
     return resolvePg3RoomTypesForFilter(channelRoomType);
   }
   return [channelRoomType];

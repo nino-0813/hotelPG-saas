@@ -4,8 +4,13 @@ import {
   getTokyoDayKind,
   hasListPriceRule,
 } from "@/lib/availability/public-rate-rules";
+import {
+  listPriceFromGuestRuleRow,
+  pickBestGuestPriceRule,
+} from "@/lib/availability/guest-price-rules";
 import { pickBestSeasonalRateForDate } from "@/lib/availability/seasonal-room-rates";
 import type {
+  PublicGuestPriceRuleRow,
   PublicRoomSettingRow,
   PublicSeasonalRoomRateRow,
 } from "@/lib/types/public-catalog";
@@ -39,25 +44,34 @@ export function listPriceFromSeasonalRow(
 
 /**
  * Shared nightly list price for public availability and Stripe checkout.
- * Seasonal row wins for that calendar night; otherwise DB catalog; otherwise hardcoded rules.
+ * Priority: seasonal → guest-band rules → public_room_settings → hardcoded rules.
  */
 export function buildPublicListPriceForDate(params: {
   propertyCode: string;
   roomType: string;
   dbRoomSetting: PublicRoomSettingRow | null;
   seasonalRows: PublicSeasonalRoomRateRow[];
+  guestPriceRules: PublicGuestPriceRuleRow[];
 }): ((dateYmd: string, guestCount: number) => number | null) | undefined {
-  const { propertyCode, roomType, dbRoomSetting, seasonalRows } = params;
+  const { propertyCode, roomType, dbRoomSetting, seasonalRows, guestPriceRules } =
+    params;
   const hasDbPrice = dbRoomSetting !== null && dbRoomSetting.is_active === true;
   const hasCodePrice = !hasDbPrice && hasListPriceRule(propertyCode, roomType);
   const hasSeasonal = seasonalRows.length > 0;
+  const hasGuestPriceRules = guestPriceRules.length > 0;
 
-  if (!hasDbPrice && !hasCodePrice && !hasSeasonal) return undefined;
+  if (!hasDbPrice && !hasCodePrice && !hasSeasonal && !hasGuestPriceRules) {
+    return undefined;
+  }
 
   return (dateYmd: string, guestCount: number) => {
     const seasonal = pickBestSeasonalRateForDate(seasonalRows, dateYmd);
     if (seasonal) {
       return listPriceFromSeasonalRow(seasonal, dbRoomSetting, dateYmd, guestCount);
+    }
+    const guestRule = pickBestGuestPriceRule(guestPriceRules, guestCount);
+    if (guestRule) {
+      return listPriceFromGuestRuleRow(guestRule, dateYmd);
     }
     if (hasDbPrice) {
       return listPriceFromRoomSetting(dbRoomSetting!, dateYmd, guestCount);

@@ -75,6 +75,40 @@ export function resolvePg3RoomTypesForFilter(roomTypeParam: string): string[] {
   return [roomTypeParam];
 }
 
+/**
+ * Web / Stripe catalog key for PG3: `family` / `standard` → 1–3 guests = 3名タイプ, 4 guests = 4名タイプ.
+ * Explicit `washitsu_modern_*` is returned unchanged.
+ */
+export function resolvePg3WebCatalogRoomType(
+  propertyCode: string,
+  roomTypeParam: string,
+  guestCount: number,
+): string {
+  if (propertyCode !== "PG3") return roomTypeParam;
+  const v = roomTypeParam.toLowerCase();
+  if (v === "family" || v === "standard") {
+    const g = Math.max(1, Math.floor(guestCount));
+    return g >= 4 ? "washitsu_modern_4" : "washitsu_modern_3";
+  }
+  return roomTypeParam;
+}
+
+/** Explicit PG3 washitsu `roomType` from the website must match guest count (`family` is resolved elsewhere). */
+export function validatePg3WashitsuWebGuestCount(
+  propertyCode: string,
+  roomType: string,
+  guestCount: number,
+): string | null {
+  if (propertyCode !== "PG3") return null;
+  if (roomType === "washitsu_modern_3" && guestCount > 3) {
+    return "guestCount exceeds max_guests for washitsu_modern_3";
+  }
+  if (roomType === "washitsu_modern_4" && guestCount !== 4) {
+    return "washitsu_modern_4 requires exactly 4 guests";
+  }
+  return null;
+}
+
 /** PG-III: base covers 1–2 guests; each guest from the 3rd adds EXTRA_PER_GUEST_FROM_THIRD (max occupancy is per room, not a price tier). */
 function pg3ListPriceForNight(
   dateYmd: string,

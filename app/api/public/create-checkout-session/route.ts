@@ -1,5 +1,6 @@
 import { differenceInCalendarDays, parseISO } from "date-fns";
 import { NextResponse, type NextRequest } from "next/server";
+import { validatePg3WashitsuWebGuestCount } from "@/lib/availability/public-rate-rules";
 import { computePublicCheckoutForStay } from "@/lib/stripe/compute-public-checkout-for-stay";
 import { createStripeCheckoutSession } from "@/lib/stripe/stripe-api";
 
@@ -90,6 +91,13 @@ export async function POST(req: NextRequest) {
   ) {
     return bad("guestCount exceeds max_guests");
   }
+
+  const pg3WashitsuErr = validatePg3WashitsuWebGuestCount(
+    propertyCode,
+    roomType,
+    guestCount,
+  );
+  if (pg3WashitsuErr) return bad(pg3WashitsuErr);
 
   const pricing = await computePublicCheckoutForStay({
     propertyCode,

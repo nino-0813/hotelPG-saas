@@ -28,6 +28,22 @@ export type PublicInventoryCapRow = {
   updated_at: string;
 };
 
+/** Row from `public.public_guest_price_rules` (per guest-count band list prices). */
+export type PublicGuestPriceRuleRow = {
+  id: string;
+  property_code: string;
+  room_type: string;
+  min_guests: number;
+  max_guests: number;
+  weekday_price: number;
+  friday_price: number;
+  saturday_price: number;
+  is_active: boolean;
+  priority: number;
+  created_at: string;
+  updated_at: string;
+};
+
 /** Row from `public.public_seasonal_room_rates` (date-range price / cap overrides). */
 export type PublicSeasonalRoomRateRow = {
   id: string;

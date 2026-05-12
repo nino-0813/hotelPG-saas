@@ -9,13 +9,15 @@ import { buildPublicListPriceForDate } from "@/lib/availability/public-catalog-p
 import { resolvePublicAvailabilityCap } from "@/lib/availability/public-inventory-caps";
 import {
   hasListPriceRule,
-  resolvePg3RoomTypesForFilter,
+  resolvePg3WebCatalogRoomType,
 } from "@/lib/availability/public-rate-rules";
+import { fetchGuestPriceRulesForCatalog } from "@/lib/availability/guest-price-rules";
 import {
   fetchSeasonalRoomRatesForWindow,
   pickBestSeasonalRateForDate,
 } from "@/lib/availability/seasonal-room-rates";
 import type {
+  PublicGuestPriceRuleRow,
   PublicInventoryCapRow,
   PublicRoomSettingRow,
   PublicSeasonalRoomRateRow,
@@ -61,14 +63,21 @@ function trimParam(raw: string | null): string | null {
   return t === "" ? null : t;
 }
 
-/** Resolves API roomType param to DB room_type filter list (PG3 web aliases → washitsu types). */
+/** Resolves API roomType param to DB room_type filter list (PG3 family/standard →人数別 washitsu). */
 function resolveRoomTypesForFilter(
   resolvedPropertyCode: string | null,
   roomTypeParam: string | null,
+  partySize: number,
 ): string[] | null {
   if (!roomTypeParam) return null;
   if (resolvedPropertyCode === "PG3") {
-    return resolvePg3RoomTypesForFilter(roomTypeParam);
+    return [
+      resolvePg3WebCatalogRoomType(
+        resolvedPropertyCode,
+        roomTypeParam,
+        partySize,
+      ),
+    ];
   }
   return [roomTypeParam];
 }
@@ -236,6 +245,7 @@ export async function GET(req: NextRequest) {
     const roomTypesFilter = resolveRoomTypesForFilter(
       resolvedPropertyCode,
       roomTypeParam,
+      partySize,
     );
 
     let roomsQuery = supabase
@@ -292,34 +302,43 @@ export async function GET(req: NextRequest) {
     const reservations = (reservationsRaw ?? []) as PublicReservationRow[];
 
     const rateCode = resolvedPropertyCode;
-    const rateRoomType = roomTypeParam;
+    const catalogRateRoomType =
+      rateCode && roomTypeParam
+        ? resolvePg3WebCatalogRoomType(rateCode, roomTypeParam, partySize)
+        : roomTypeParam;
 
     let dbRoomSetting: PublicRoomSettingRow | null = null;
     let dbInventoryCaps: PublicInventoryCapRow[] | null = null;
     let seasonalRows: PublicSeasonalRoomRateRow[] = [];
+    let guestPriceRules: PublicGuestPriceRuleRow[] = [];
 
-    if (rateCode && rateRoomType) {
-      const [rsRes, icRes, seasonal] = await Promise.all([
+    if (rateCode && catalogRateRoomType) {
+      const [rsRes, icRes, seasonal, guestRules] = await Promise.all([
         supabase
           .from("public_room_settings")
           .select("*")
           .eq("property_code", rateCode)
-          .eq("room_type", rateRoomType)
+          .eq("room_type", catalogRateRoomType)
           .maybeSingle(),
         supabase
           .from("public_inventory_caps")
           .select("*")
           .eq("property_code", rateCode)
-          .eq("room_type", rateRoomType),
+          .eq("room_type", catalogRateRoomType),
         fetchSeasonalRoomRatesForWindow(supabase, {
           propertyCode: rateCode,
-          roomType: rateRoomType,
+          roomType: catalogRateRoomType,
           startYmd: start,
           endYmd: lastDateStr,
+        }),
+        fetchGuestPriceRulesForCatalog(supabase, {
+          propertyCode: rateCode,
+          roomType: catalogRateRoomType,
         }),
       ]);
 
       seasonalRows = seasonal;
+      guestPriceRules = guestRules;
 
       if (rsRes.error) {
         console.error("[public/availability] public_room_settings", rsRes.error);
@@ -339,30 +358,32 @@ export async function GET(req: NextRequest) {
     const hasCodePrice =
       !hasDbPrice &&
       rateCode !== null &&
-      rateRoomType !== null &&
-      hasListPriceRule(rateCode, rateRoomType);
+      catalogRateRoomType !== null &&
+      hasListPriceRule(rateCode, catalogRateRoomType);
     const hasSeasonal = seasonalRows.length > 0;
+    const hasGuestPriceRules = guestPriceRules.length > 0;
 
     const listPriceForDateFn =
-      hasDbPrice || hasCodePrice || hasSeasonal
+      hasDbPrice || hasCodePrice || hasSeasonal || hasGuestPriceRules
         ? buildPublicListPriceForDate({
             propertyCode: rateCode!,
-            roomType: rateRoomType!,
+            roomType: catalogRateRoomType!,
             dbRoomSetting,
             seasonalRows,
+            guestPriceRules,
           })
         : undefined;
 
     const availabilityCap = resolvePublicAvailabilityCap(
       rateCode,
-      roomTypeParam,
+      catalogRateRoomType ?? roomTypeParam,
       roomTypesFilter,
       partySize,
       dbInventoryCaps,
     );
 
     const availabilityCapForDate =
-      rateCode && rateRoomType
+      rateCode && catalogRateRoomType
         ? (dateYmd: string) => {
             const o = pickBestSeasonalRateForDate(
               seasonalRows,
@@ -376,8 +397,8 @@ export async function GET(req: NextRequest) {
     const computeOptions =
       listPriceForDateFn != null ||
       availabilityCap != null ||
-      (availabilityCapForDate != null && rateCode && rateRoomType) ||
-      (rateCode && rateRoomType)
+      (availabilityCapForDate != null && rateCode && catalogRateRoomType) ||
+      (rateCode && catalogRateRoomType)
         ? {
             ...(listPriceForDateFn
               ? { listPriceForDate: listPriceForDateFn }
@@ -385,10 +406,10 @@ export async function GET(req: NextRequest) {
             ...(availabilityCap != null
               ? { availabilityCap }
               : {}),
-            ...(rateCode && rateRoomType && availabilityCapForDate
+            ...(rateCode && catalogRateRoomType && availabilityCapForDate
               ? { availabilityCapForDate }
               : {}),
-            ...(rateCode && rateRoomType
+            ...(rateCode && catalogRateRoomType
               ? { includeStripeWebCheckoutEstimate: true as const }
               : {}),
             ...(process.env.NODE_ENV === "development"
@@ -396,7 +417,7 @@ export async function GET(req: NextRequest) {
                   debug: {
                     propertyCode: rateCode ?? null,
                     propertyId: resolvedPropertyId ?? null,
-                    roomType: rateRoomType ?? null,
+                    roomType: catalogRateRoomType ?? roomTypeParam ?? null,
                     roomIds,
                     reservationsFetchedCount: reservations.length,
                   },

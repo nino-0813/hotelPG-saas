@@ -5,6 +5,7 @@ import {
   deriveSmartKeyCodeFromPhone,
 } from "@/lib/reservations/guest-smart-key";
 import { pickAvailableRoomForStay } from "@/lib/reservations/pick-available-room-for-stay";
+import { resolvePg3WebCatalogRoomType } from "@/lib/availability/public-rate-rules";
 import { resolveDbRoomTypesForBooking } from "@/lib/reservations/room-types-for-booking";
 import { insertStripeWebhookLog } from "@/lib/stripe/webhook-event-log";
 
@@ -86,7 +87,15 @@ export async function createReservationWithAssignment(
     return { ok: false, error: "Unknown propertyCode" };
   }
 
-  const dbRoomTypes = resolveDbRoomTypesForBooking(prop.code, roomType);
+  const dbRoomTypes = resolveDbRoomTypesForBooking(
+    prop.code,
+    roomType,
+    guestCount,
+  );
+  const catalogRoomType =
+    prop.code === "PG3"
+      ? resolvePg3WebCatalogRoomType(prop.code, roomType, guestCount)
+      : roomType;
   const picked = await pickAvailableRoomForStay(supabase, {
     propertyId: prop.id,
     roomTypes: dbRoomTypes,
@@ -97,7 +106,7 @@ export async function createReservationWithAssignment(
 
   const assignedRoomId = picked.roomId;
   const assignedRoomType = (
-    assignedRoomId && picked.roomType ? picked.roomType : roomType
+    assignedRoomId && picked.roomType ? picked.roomType : catalogRoomType
   ) as RoomType;
 
   const sk = resolveSmartKey({
