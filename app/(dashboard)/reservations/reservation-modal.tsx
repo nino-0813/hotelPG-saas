@@ -16,8 +16,10 @@ import {
   createReservation,
   deleteReservation,
   getCheckInEmailDraft,
+  getReservationConfirmedEmailDraft,
   syncExternalCalendars,
   updateReservation,
+  type GuestEmailDraft,
 } from "./actions";
 import { cancelReservation } from "@/app/actions/cancelReservation";
 import { summarizeMultipleSyncResults } from "@/lib/ical/sync-summary";
@@ -375,10 +377,7 @@ function ReservationDetail({
   const [sending, startSend] = useTransition();
   const [draftPending, startDraft] = useTransition();
   const [error, setError] = useState<string | null>(null);
-  const [emailDraft, setEmailDraft] = useState<
-    | null
-    | { to: string; subject: string; body: string; from: string }
-  >(null);
+  const [emailDraft, setEmailDraft] = useState<GuestEmailDraft | null>(null);
 
   const room = rooms.find((r) => r.id === reservation.room_id);
   const property = properties.find((p) => p.id === room?.property_id);
@@ -448,6 +447,15 @@ function ReservationDetail({
     startDraft(async () => {
       setError(null);
       const res = await getCheckInEmailDraft(reservation.id);
+      if (res?.error) setError(res.error);
+      else if (res?.draft) setEmailDraft(res.draft);
+    });
+  };
+
+  const handleSendReservationConfirmedEmail = () => {
+    startDraft(async () => {
+      setError(null);
+      const res = await getReservationConfirmedEmailDraft(reservation.id);
       if (res?.error) setError(res.error);
       else if (res?.draft) setEmailDraft(res.draft);
     });
@@ -529,7 +537,9 @@ function ReservationDetail({
             <div className="border-b border-neutral-200 px-4 py-3 sm:px-6">
               <div className="text-sm font-semibold">送信内容の確認</div>
               <div className="mt-0.5 text-xs text-neutral-500">
-                この内容でチェックインメールを送信します（宛先は送信直前に変更できます）
+                {emailDraft.mailKind === "reservation_confirmed"
+                  ? "この内容で予約確定のご案内メールを送信します（宛先は送信直前に変更できます）"
+                  : "この内容でチェックインメールを送信します（宛先は送信直前に変更できます）"}
               </div>
             </div>
             <div className="space-y-3 px-4 py-4 text-sm sm:px-6 sm:py-5">
@@ -658,6 +668,19 @@ function ReservationDetail({
             }
           >
             {draftPending ? "作成中..." : "チェックインメール送信"}
+          </button>
+          <button
+            type="button"
+            onClick={handleSendReservationConfirmedEmail}
+            disabled={pending || sending || draftPending || !reservation.guest_email}
+            className="rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-neutral-50 disabled:opacity-50"
+            title={
+              reservation.guest_email
+                ? "予約確定（決済完了）の案内メールを送信"
+                : "メールアドレスがないため送信できません"
+            }
+          >
+            {draftPending ? "作成中..." : "予約確定メール送信"}
           </button>
           {reservation.status === "confirmed" && (
             <button

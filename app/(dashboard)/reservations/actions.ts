@@ -1,12 +1,16 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { format, parseISO } from "date-fns";
+import { ja } from "date-fns/locale";
 import { sendMail } from "@/lib/gmail";
+import { roomTypeLabel } from "@/lib/room-type-labels";
 import { createClient } from "@/lib/supabase/server";
 import { syncAllEnabledCalendars } from "@/lib/ical/sync";
 import type {
   PaymentMethod,
   ReservationStatus,
+  RoomType,
 } from "@/lib/types/database";
 
 export type CreateReservationInput = {
@@ -329,12 +333,91 @@ function buildCheckInBodyPG2(args: {
   ].join("\n");
 }
 
-type CheckInEmailDraft = {
+export type GuestEmailDraft = {
   to: string;
   subject: string;
   body: string;
   from: string;
+  mailKind: "check_in" | "reservation_confirmed";
 };
+
+function formatJaYmd(isoDate: string): string {
+  return format(parseISO(isoDate), "yyyy年M月d日", { locale: ja });
+}
+
+function reservationConfirmedPaymentLine(
+  paymentMethod: string | null | undefined,
+): string {
+  if (paymentMethod === "onsite") {
+    return "現地決済（当日ご精算）";
+  }
+  return "オンラインにて決済済み（金額は決済完了メール・ご利用明細をご確認ください）";
+}
+
+function reservationConfirmedOpeningLine(
+  paymentMethod: string | null | undefined,
+): string {
+  if (paymentMethod === "onsite") {
+    return "以下の内容でご予約が確定いたしました。";
+  }
+  return "決済が完了し、以下の内容でご予約が確定いたしました。";
+}
+
+function roomTypeLineFromReservationRow(r: {
+  rooms?: unknown;
+  requested_room_type: RoomType | null;
+}): string {
+  const raw = r.rooms;
+  const row = Array.isArray(raw) ? raw[0] : raw;
+  const fromRoom =
+    row &&
+    typeof row === "object" &&
+    "room_type" in row &&
+    typeof (row as { room_type: unknown }).room_type === "string"
+      ? ((row as { room_type: string }).room_type as RoomType)
+      : null;
+  const t = fromRoom ?? r.requested_room_type;
+  return t ? roomTypeLabel(t) : "—";
+}
+
+function buildReservationConfirmedBody(args: {
+  guestName: string;
+  openingLine: string;
+  facilityLine: string;
+  checkInJa: string;
+  checkOutJa: string;
+  guestCount: number;
+  roomTypeLine: string;
+  paymentLine: string;
+}): string {
+  return [
+    `${args.guestName} 様`,
+    "",
+    "この度は HOTEL PG をご予約いただき、誠にありがとうございます。",
+    "",
+    args.openingLine,
+    "",
+    "【ご予約内容】",
+    `宿泊施設：${args.facilityLine}`,
+    `チェックイン日：${args.checkInJa}`,
+    `チェックアウト日：${args.checkOutJa}`,
+    `宿泊人数：${args.guestCount}名`,
+    `お部屋タイプ：${args.roomTypeLine}`,
+    `お支払い金額：${args.paymentLine}`,
+    "",
+    "チェックイン方法・お部屋番号・ロック解除番号などの詳しいご案内は、チェックイン日の4〜5日前を目安に、改めてメールにてお送りいたします。",
+    "",
+    "当ホテルでは、フロントを設けておらず、常駐スタッフもおりません。",
+    "そのため、事前にお送りするチェックイン案内をご確認のうえ、セルフチェックインをお願いいたします。",
+    "",
+    "ご予約内容の変更やご不明点がございましたら、お早めにご連絡ください。",
+    "070-8328-9154",
+    "",
+    "因島でのご滞在を、心よりお待ちしております。",
+    "",
+    "HOTEL PG",
+  ].join("\n");
+}
 
 function splitReservationRoomJoin(r: {
   rooms?: unknown;
@@ -363,9 +446,50 @@ function splitReservationRoomJoin(r: {
   return { propCode, roomNumber: room_number };
 }
 
+async function buildReservationConfirmedEmailDraft(
+  reservationId: string,
+): Promise<{ draft?: GuestEmailDraft; error?: string }> {
+  const supabase = await createClient();
+  const { data: r, error } = await supabase
+    .from("reservations")
+    .select(
+      "id, guest_name, guest_email, guest_count, check_in_date, check_out_date, payment_method, requested_room_type, rooms(room_number, room_type, properties(code))",
+    )
+    .eq("id", reservationId)
+    .single();
+
+  if (error || !r) return { error: error?.message ?? "予約が見つかりません" };
+  if (!r.guest_email) return { error: "メールアドレスが未設定です" };
+
+  const from = process.env.GMAIL_SENDER_EMAIL || "me";
+  const { propCode } = splitReservationRoomJoin(r);
+  const facilityLine = propertyLabelFromCode(propCode);
+  const subject = "【HOTEL PG】ご予約が確定しました";
+  const body = buildReservationConfirmedBody({
+    guestName: r.guest_name,
+    openingLine: reservationConfirmedOpeningLine(r.payment_method),
+    facilityLine,
+    checkInJa: formatJaYmd(r.check_in_date),
+    checkOutJa: formatJaYmd(r.check_out_date),
+    guestCount: r.guest_count,
+    roomTypeLine: roomTypeLineFromReservationRow(r),
+    paymentLine: reservationConfirmedPaymentLine(r.payment_method),
+  });
+
+  return {
+    draft: {
+      to: r.guest_email,
+      subject,
+      body,
+      from,
+      mailKind: "reservation_confirmed",
+    },
+  };
+}
+
 async function buildCheckInEmailDraft(
   reservationId: string,
-): Promise<{ draft?: CheckInEmailDraft; error?: string }> {
+): Promise<{ draft?: GuestEmailDraft; error?: string }> {
   const supabase = await createClient();
   const { data: r, error } = await supabase
     .from("reservations")
@@ -403,12 +527,19 @@ async function buildCheckInEmailDraft(
       subject,
       body,
       from,
+      mailKind: "check_in",
     },
   };
 }
 
 export async function getCheckInEmailDraft(reservationId: string) {
   return await buildCheckInEmailDraft(reservationId);
+}
+
+export async function getReservationConfirmedEmailDraft(
+  reservationId: string,
+) {
+  return await buildReservationConfirmedEmailDraft(reservationId);
 }
 
 export async function sendCheckInEmail(reservationId: string) {
