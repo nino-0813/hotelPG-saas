@@ -37,6 +37,9 @@ export async function POST(req: NextRequest) {
       to?: unknown;
       subject?: unknown;
       message?: unknown;
+      /** When set with mailKind, records send on reservation + audit log */
+      reservationId?: unknown;
+      mailKind?: unknown;
     };
 
     const to =
@@ -57,6 +60,52 @@ export async function POST(req: NextRequest) {
     }
 
     await sendMail(to, subject, message);
+
+    const reservationIdRaw = body.reservationId;
+    const mailKindRaw = body.mailKind;
+    if (
+      typeof reservationIdRaw === "string" &&
+      (mailKindRaw === "check_in" ||
+        mailKindRaw === "reservation_confirmed")
+    ) {
+      const reservationId = reservationIdRaw.trim();
+      const uuidRe =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (uuidRe.test(reservationId)) {
+        const { data: exists, error: selErr } = await supabase
+          .from("reservations")
+          .select("id")
+          .eq("id", reservationId)
+          .maybeSingle();
+
+        if (!selErr && exists?.id) {
+          const nowIso = new Date().toISOString();
+          const patch =
+            mailKindRaw === "check_in"
+              ? { guest_mail_check_in_sent_at: nowIso }
+              : { guest_mail_reservation_confirmed_sent_at: nowIso };
+          const { error: upErr } = await supabase
+            .from("reservations")
+            .update(patch)
+            .eq("id", reservationId);
+          if (upErr) {
+            console.error("[send-mail] reservation timestamp update failed", upErr);
+          }
+
+          const logAction =
+            mailKindRaw === "check_in"
+              ? "mail_check_in_sent"
+              : "mail_reservation_confirmed_sent";
+          const { error: logErr } = await supabase.from("reservation_logs").insert({
+            reservation_id: reservationId,
+            action: logAction,
+          });
+          if (logErr) {
+            console.error("[send-mail] reservation_logs insert failed", logErr);
+          }
+        }
+      }
+    }
 
     return NextResponse.json({ success: true });
   } catch (error) {

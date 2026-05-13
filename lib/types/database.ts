@@ -69,6 +69,10 @@ export type Reservation = {
   requested_property_id: string | null;
   requested_room_type: RoomType | null;
   stripe_session_id?: string | null;
+  /** Dashboard Gmail: last check-in guidance mail sent at */
+  guest_mail_check_in_sent_at?: string | null;
+  /** Dashboard Gmail: last reservation-confirmed mail sent at */
+  guest_mail_reservation_confirmed_sent_at?: string | null;
   created_at: string;
   updated_at: string;
 };

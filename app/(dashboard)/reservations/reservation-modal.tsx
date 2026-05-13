@@ -2,7 +2,8 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { format } from "date-fns";
+import { format, parseISO } from "date-fns";
+import { ja } from "date-fns/locale";
 import clsx from "clsx";
 import type {
   PaymentMethod,
@@ -32,6 +33,15 @@ function reservationSourceLabel(s: string | null | undefined): string {
     manual: "手入力",
   };
   return map[s] ?? s;
+}
+
+function guestMailSentLabel(iso: string | null | undefined): string {
+  if (!iso) return "未送信";
+  try {
+    return `${format(parseISO(iso), "yyyy/MM/dd HH:mm", { locale: ja })} 送信済み`;
+  } catch {
+    return "送信済み";
+  }
 }
 
 export type ModalState =
@@ -486,6 +496,8 @@ function ReservationDetail({
             to: toTrimmed,
             subject: emailDraft.subject,
             message: emailDraft.body,
+            reservationId: reservation.id,
+            mailKind: emailDraft.mailKind,
           }),
         });
 
@@ -647,6 +659,25 @@ function ReservationDetail({
         </Row>
         <Row label="予約元">{reservationSourceLabel(reservation.source)}</Row>
 
+        <div className="rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2.5 text-xs text-neutral-800">
+          <div className="font-semibold text-neutral-900">メール送信状況</div>
+          <ul className="mt-1.5 space-y-1 text-neutral-700">
+            <li>
+              チェックイン案内:{" "}
+              {guestMailSentLabel(reservation.guest_mail_check_in_sent_at)}
+            </li>
+            <li>
+              予約確定案内:{" "}
+              {guestMailSentLabel(
+                reservation.guest_mail_reservation_confirmed_sent_at,
+              )}
+            </li>
+          </ul>
+          <p className="mt-1.5 text-[11px] leading-snug text-neutral-500">
+            ダッシュボードから送信に成功したときのみ記録されます（再送するたびに日時が更新されます）。
+          </p>
+        </div>
+
         {error ? (
           <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
             {error}
@@ -682,16 +713,6 @@ function ReservationDetail({
           >
             {draftPending ? "作成中..." : "予約確定メール送信"}
           </button>
-          {reservation.status === "confirmed" && (
-            <button
-              type="button"
-              onClick={() => handleStatusChange("checked_in")}
-              disabled={pending}
-              className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700"
-            >
-              チェックイン
-            </button>
-          )}
           {reservation.status === "checked_in" && (
             <button
               type="button"
