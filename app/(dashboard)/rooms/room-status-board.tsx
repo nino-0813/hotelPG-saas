@@ -15,9 +15,8 @@ import type {
 import { roomTypeLabel } from "@/lib/room-type-labels";
 import { updateRoomStatus } from "./actions";
 
-const STATUS_ORDER: RoomStatusValue[] = [
+const SUMMARY_STATUS_ORDER: RoomStatusValue[] = [
   "uncleaned",
-  "cleaning",
   "ready",
   "occupied",
 ];
@@ -29,16 +28,24 @@ const STATUS_LABEL: Record<RoomStatusValue, string> = {
   occupied: "滞在中",
 };
 
-const CHECK_IN_TIME = "15:00";
-const CHECK_OUT_TIME = "10:00";
+const DEFAULT_CHECK_IN = "15:00";
+const DEFAULT_CHECK_OUT = "11:00";
 
-function toLocalDateTime(date: string, time: string) {
-  return new Date(`${date}T${time}:00`);
+function clockHm(t: string | null | undefined, fallback: string): string {
+  const raw = (t ?? fallback).trim();
+  const hm = raw.length >= 5 ? raw.slice(0, 5) : fallback.slice(0, 5);
+  return /^\d{2}:\d{2}$/.test(hm) ? hm : fallback.slice(0, 5);
+}
+
+function toLocalDateTime(date: string, timeHm: string) {
+  return new Date(`${date}T${timeHm}:00`);
 }
 
 function isOccupiedByTime(r: Reservation, now: Date) {
-  const checkInAt = toLocalDateTime(r.check_in_date, CHECK_IN_TIME);
-  const checkOutAt = toLocalDateTime(r.check_out_date, CHECK_OUT_TIME);
+  const inHm = clockHm(r.check_in_time, DEFAULT_CHECK_IN);
+  const outHm = clockHm(r.check_out_time, DEFAULT_CHECK_OUT);
+  const checkInAt = toLocalDateTime(r.check_in_date, inHm);
+  const checkOutAt = toLocalDateTime(r.check_out_date, outHm);
   return now >= checkInAt && now < checkOutAt;
 }
 
@@ -112,7 +119,10 @@ export function RoomStatusBoard({
     for (const r of currentReservations) {
       if (!r.room_id) continue;
       if (r.check_out_date !== today) continue;
-      const checkOutAt = toLocalDateTime(r.check_out_date, CHECK_OUT_TIME);
+      const checkOutAt = toLocalDateTime(
+        r.check_out_date,
+        clockHm(r.check_out_time, DEFAULT_CHECK_OUT),
+      );
       if (now >= checkOutAt) m.set(r.room_id, r);
     }
     return m;
@@ -142,10 +152,26 @@ export function RoomStatusBoard({
         m.set(room.id, "occupied");
         continue;
       }
-      // Auto: after 10:00 on checkout day, mark uncleaned until staff sets ready.
-      if (checkedOutTodayByRoom.has(room.id) && base !== "ready") {
-        m.set(room.id, "uncleaned");
-        continue;
+      // After 10:00 on checkout day: show 未清掃 until staff marks 準備完了
+      // (room_status.ready) *after* checkout. If DB is still "ready" from before
+      // the stay, treat as needing clean — only trust ready when updated_at >= checkout.
+      if (checkedOutTodayByRoom.has(room.id)) {
+        const checkoutRes = checkedOutTodayByRoom.get(room.id)!;
+        const checkOutAt = toLocalDateTime(
+          checkoutRes.check_out_date,
+          clockHm(checkoutRes.check_out_time, DEFAULT_CHECK_OUT),
+        );
+        const row = statusByRoom.get(room.id);
+        const updatedAt = row?.updated_at ? new Date(row.updated_at) : null;
+        const readyAfterCheckout =
+          base === "ready" &&
+          updatedAt != null &&
+          !Number.isNaN(updatedAt.getTime()) &&
+          updatedAt >= checkOutAt;
+        if (!readyAfterCheckout) {
+          m.set(room.id, "uncleaned");
+          continue;
+        }
       }
       m.set(room.id, base);
     }
@@ -170,8 +196,8 @@ export function RoomStatusBoard({
   return (
     <>
       {/* Summary bar */}
-      <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {STATUS_ORDER.map((s) => (
+      <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-3">
+        {SUMMARY_STATUS_ORDER.map((s) => (
           <SummaryCard
             key={s}
             status={s}
@@ -356,7 +382,11 @@ function RoomCard({
           </button>
           {status === "occupied" ? (
             <div className="mt-1 text-[10px] text-neutral-400">
-              滞在中は変更できません（{CHECK_IN_TIME}〜 / 〜{CHECK_OUT_TIME}）
+              滞在中は変更できません（
+              {current
+                ? `${clockHm(current.check_in_time, DEFAULT_CHECK_IN)}〜 / 〜${clockHm(current.check_out_time, DEFAULT_CHECK_OUT)}`
+                : `${DEFAULT_CHECK_IN}〜 / 〜${DEFAULT_CHECK_OUT}`}
+              ）
             </div>
           ) : null}
         </div>
