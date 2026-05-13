@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { format } from "date-fns";
 import { ja } from "date-fns/locale";
 import clsx from "clsx";
@@ -28,24 +28,17 @@ const STATUS_LABEL: Record<RoomStatusValue, string> = {
   occupied: "滞在中",
 };
 
-const DEFAULT_CHECK_IN = "15:00";
-const DEFAULT_CHECK_OUT = "11:00";
-
-function clockHm(t: string | null | undefined, fallback: string): string {
-  const raw = (t ?? fallback).trim();
-  const hm = raw.length >= 5 ? raw.slice(0, 5) : fallback.slice(0, 5);
-  return /^\d{2}:\d{2}$/.test(hm) ? hm : fallback.slice(0, 5);
-}
+/** 部屋ボードの「滞在中／未清掃」境界（ホテル標準・DBの時刻は使わない） */
+const DISPLAY_CHECK_IN = "15:00";
+const DISPLAY_CHECK_OUT = "10:00";
 
 function toLocalDateTime(date: string, timeHm: string) {
   return new Date(`${date}T${timeHm}:00`);
 }
 
 function isOccupiedByTime(r: Reservation, now: Date) {
-  const inHm = clockHm(r.check_in_time, DEFAULT_CHECK_IN);
-  const outHm = clockHm(r.check_out_time, DEFAULT_CHECK_OUT);
-  const checkInAt = toLocalDateTime(r.check_in_date, inHm);
-  const checkOutAt = toLocalDateTime(r.check_out_date, outHm);
+  const checkInAt = toLocalDateTime(r.check_in_date, DISPLAY_CHECK_IN);
+  const checkOutAt = toLocalDateTime(r.check_out_date, DISPLAY_CHECK_OUT);
   return now >= checkInAt && now < checkOutAt;
 }
 
@@ -96,7 +89,19 @@ export function RoomStatusBoard({
   upcomingReservations,
   openTasks,
 }: Props) {
-  const now = useMemo(() => new Date(), []);
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const tick = () => setNow(new Date());
+    const id = setInterval(tick, 60_000);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") tick();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, []);
   const today = useMemo(() => format(now, "yyyy-MM-dd"), [now]);
 
   const statusByRoom = useMemo(() => {
@@ -121,7 +126,7 @@ export function RoomStatusBoard({
       if (r.check_out_date !== today) continue;
       const checkOutAt = toLocalDateTime(
         r.check_out_date,
-        clockHm(r.check_out_time, DEFAULT_CHECK_OUT),
+        DISPLAY_CHECK_OUT,
       );
       if (now >= checkOutAt) m.set(r.room_id, r);
     }
@@ -159,7 +164,7 @@ export function RoomStatusBoard({
         const checkoutRes = checkedOutTodayByRoom.get(room.id)!;
         const checkOutAt = toLocalDateTime(
           checkoutRes.check_out_date,
-          clockHm(checkoutRes.check_out_time, DEFAULT_CHECK_OUT),
+          DISPLAY_CHECK_OUT,
         );
         const row = statusByRoom.get(room.id);
         const updatedAt = row?.updated_at ? new Date(row.updated_at) : null;
@@ -382,11 +387,8 @@ function RoomCard({
           </button>
           {status === "occupied" ? (
             <div className="mt-1 text-[10px] text-neutral-400">
-              滞在中は変更できません（
-              {current
-                ? `${clockHm(current.check_in_time, DEFAULT_CHECK_IN)}〜 / 〜${clockHm(current.check_out_time, DEFAULT_CHECK_OUT)}`
-                : `${DEFAULT_CHECK_IN}〜 / 〜${DEFAULT_CHECK_OUT}`}
-              ）
+              滞在中は変更できません（{DISPLAY_CHECK_IN}〜 / 〜
+              {DISPLAY_CHECK_OUT}）
             </div>
           ) : null}
         </div>

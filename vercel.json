@@ -1,8 +1,0 @@
-{
-  "crons": [
-    {
-      "path": "/api/cron/reservation-stay-status",
-      "schedule": "5,15,25,35,45,55 * * * *"
-    }
-  ]
-}
