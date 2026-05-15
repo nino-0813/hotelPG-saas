@@ -5,6 +5,11 @@ import { loadPublicStayAvailability } from "@/lib/availability/load-public-stay-
 import { formatStripeWebReservationSpecialNotes } from "@/lib/stripe/stripe-web-checkout-pricing";
 import { createReservationWithAssignment } from "@/lib/reservations/create-reservation-with-assignment";
 import { insertStripeWebhookLog } from "@/lib/stripe/webhook-event-log";
+import {
+  formatStripeWebReservationLineMessage,
+  getLineChannelAccessToken,
+  sendLineBroadcastText,
+} from "@/lib/line";
 
 export const runtime = "nodejs";
 
@@ -206,6 +211,53 @@ export async function POST(req: NextRequest) {
       assigned_room_id: null,
       has_smart_key_code: null,
     });
+    return new NextResponse("OK", { status: 200 });
+  }
+
+  const lineToken = getLineChannelAccessToken();
+  if (lineToken) {
+    const text = formatStripeWebReservationLineMessage({
+      guestName: guestName,
+      guestEmail: guestEmail,
+      guestCount,
+      propertyCode,
+      roomType,
+      checkInDate,
+      checkOutDate,
+      reservationId: created.reservationId,
+    });
+    try {
+      const lineRes = await sendLineBroadcastText(text);
+      const payload = {
+        reservation_id: created.reservationId,
+        stripe_session_id: sessionId,
+        guest_name: guestName,
+        check_in_date: checkInDate,
+        check_out_date: checkOutDate,
+      };
+      if (lineRes.ok) {
+        await supabase.from("notification_log").insert({
+          type: "stripe_web_new_reservation",
+          payload,
+          sent_to_line_user_id: "broadcast",
+          status: "sent",
+          error: null,
+          sent_at: new Date().toISOString(),
+        });
+      } else {
+        console.error("[stripe/webhook] LINE notify failed", lineRes.error);
+        await supabase.from("notification_log").insert({
+          type: "stripe_web_new_reservation",
+          payload: { ...payload, line_error: lineRes.error },
+          sent_to_line_user_id: "broadcast",
+          status: "failed",
+          error: lineRes.error,
+          sent_at: null,
+        });
+      }
+    } catch (e) {
+      console.error("[stripe/webhook] LINE notify exception", e);
+    }
   }
 
   return new NextResponse("OK", { status: 200 });
