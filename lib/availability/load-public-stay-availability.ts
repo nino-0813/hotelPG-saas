@@ -99,7 +99,7 @@ export async function loadPublicStayAvailability(params: {
     .select(
       "room_id, requested_room_type, requested_property_id, check_in_date, check_out_date, status",
     )
-    .in("status", ["confirmed", "checked_in", "blocked", "manual"])
+    .in("status", ["confirmed", "checked_in"])
     .lte("check_in_date", lastNight)
     .gt("check_out_date", checkInDate)
     .or(

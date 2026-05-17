@@ -723,7 +723,37 @@ function ReservationDetail({
               チェックアウト
             </button>
           )}
-          {reservation.status !== "cancelled" && (
+          {reservation.status !== "cancelled" &&
+          reservation.status !== "blocked" ? (
+            <button
+              type="button"
+              onClick={() => {
+                if (
+                  !confirm(
+                    "楽天向けICSにブロックを出します（公式Webの在庫には影響しません）。よろしいですか？",
+                  )
+                )
+                  return;
+                handleStatusChange("blocked");
+              }}
+              disabled={pending}
+              className="rounded-md border border-violet-300 bg-violet-50 px-3 py-1.5 text-sm font-medium text-violet-900 hover:bg-violet-100"
+            >
+              楽天停止
+            </button>
+          ) : null}
+          {reservation.status === "blocked" ? (
+            <button
+              type="button"
+              onClick={() => handleStatusChange("confirmed")}
+              disabled={pending}
+              className="rounded-md border border-violet-300 bg-white px-3 py-1.5 text-sm font-medium text-violet-900 hover:bg-violet-50"
+            >
+              楽天停止を解除
+            </button>
+          ) : null}
+          {reservation.status !== "cancelled" &&
+          reservation.status !== "blocked" ? (
             <button
               type="button"
               onClick={() => {
@@ -734,7 +764,7 @@ function ReservationDetail({
             >
               予約をキャンセル
             </button>
-          )}
+          ) : null}
           {reservation.status === "cancelled" && (
             <>
               <button
@@ -1051,6 +1081,10 @@ function StatusRow({ status }: { status: ReservationStatus }) {
       cls: "bg-neutral-100 text-neutral-700",
     },
     cancelled: { label: "キャンセル", cls: "bg-red-100 text-red-800" },
+    blocked: {
+      label: "楽天停止（ICSブロック）",
+      cls: "bg-violet-100 text-violet-900",
+    },
   };
   const { label, cls } = map[status];
   return (

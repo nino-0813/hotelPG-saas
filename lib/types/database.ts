@@ -14,7 +14,9 @@ export type ReservationStatus =
   | "confirmed"
   | "checked_in"
   | "checked_out"
-  | "cancelled";
+  | "cancelled"
+  /** Rakuten ICS block only; excluded from web inventory cap */
+  | "blocked";
 export type TaskType = "cleaning" | "prep" | "key_setup" | "special_check";
 export type TaskStatus = "todo" | "in_progress" | "done";
 export type RoomStatusValue = "uncleaned" | "cleaning" | "ready" | "occupied";

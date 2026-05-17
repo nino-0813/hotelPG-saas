@@ -119,14 +119,9 @@ export function dateInStayRange(
   return checkIn <= d && d < checkOut;
 }
 
-/** Blocking occupancy: confirmed + checked_in (excludes cancelled / checked_out). */
+/** Blocking occupancy for web cap: active stays only (not cancelled / checked_out / blocked). */
 function countsTowardOccupancy(status: string): boolean {
-  return (
-    status === "confirmed" ||
-    status === "checked_in" ||
-    status === "blocked" ||
-    status === "manual"
-  );
+  return status === "confirmed" || status === "checked_in";
 }
 
 type PropertyTypeKey = `${string}|${string}`;

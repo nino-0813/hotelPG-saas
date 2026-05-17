@@ -13,14 +13,11 @@ const ALLOWED_ROOM_TYPES: RoomType[] = [
   "maisonette_6",
 ];
 
-/** Sources exported to Rakuten block ICS (whitelist; OTA/iCal imports stay off the feed). */
-const RAKUTEN_ICAL_EXPORT_SOURCES = [
-  "manual",
-  "stripe_web",
-  "blocked",
-  "admin_manual",
-  "website",
-] as const;
+/**
+ * Rakuten block ICS: Web sales inventory is capped separately (e.g. PG1 cap 3).
+ * Export only official-web bookings and explicit Rakuten stops — not manual/dashboard stays.
+ * OTA imports (rakuten_oyado) are never exported (avoid double blocks).
+ */
 
 function toIcsDate(dateStr: string): string {
   // YYYY-MM-DD -> YYYYMMDD
@@ -142,11 +139,11 @@ export async function GET(
 
     const { data: reservations, error: resErr } = await supabase
       .from("reservations")
-      .select("id, check_in_date, check_out_date, status, updated_at")
+      .select("id, check_in_date, check_out_date, status, source, updated_at")
       .in("room_id", roomIds)
       .not("room_id", "is", null)
-      .in("source", [...RAKUTEN_ICAL_EXPORT_SOURCES])
       .neq("status", "cancelled")
+      .or("source.eq.stripe_web,status.eq.blocked")
       .gte("check_out_date", todayStr)
       .order("updated_at", { ascending: false });
 

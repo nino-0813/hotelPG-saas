@@ -498,6 +498,11 @@ function colorForStatus(status: ReservationStatus): {
         color: "bg-red-50 text-red-600 line-through",
         border: "border-red-200",
       };
+    case "blocked":
+      return {
+        color: "bg-violet-100 text-violet-900",
+        border: "border-violet-300",
+      };
   }
 }
 
@@ -507,6 +512,7 @@ function tooltipText(r: Reservation) {
     `${r.check_in_date} ${r.check_in_time?.slice(0, 5) ?? ""} → ${r.check_out_date} ${r.check_out_time?.slice(0, 5) ?? ""}`,
     `決済: ${r.payment_method === "onsite" ? "現地" : "オンライン"}`,
   ];
+  if (r.status === "blocked") parts.push("楽天ICSブロック（Web在庫対象外）");
   if (r.source === "stripe_web") parts.push("予約元: 公式Web（Stripe）");
   else if (r.source === "rakuten_oyado") parts.push("予約元: 楽天");
   if (r.smart_key_code) parts.push(`鍵: ${r.smart_key_code}`);
