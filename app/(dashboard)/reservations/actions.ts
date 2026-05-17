@@ -99,7 +99,61 @@ export async function updateReservation(input: UpdateReservationInput) {
 
   revalidatePath("/reservations");
   revalidatePath("/tasks");
+  revalidatePath("/rooms");
   return { ok: true };
+}
+
+export async function moveReservationRoom(input: {
+  id: string;
+  room_id: string;
+}) {
+  const supabase = await createClient();
+
+  const { data: r, error: fetchErr } = await supabase
+    .from("reservations")
+    .select("id, room_id, check_in_date, check_out_date, status, guest_name")
+    .eq("id", input.id)
+    .single();
+
+  if (fetchErr || !r) return { error: fetchErr?.message ?? "予約が見つかりません" };
+  if (r.status === "cancelled") {
+    return { error: "キャンセル済みの予約は移動できません" };
+  }
+  if (!r.room_id) {
+    return { error: "部屋未割当の予約は予約一覧の「部屋割当」から割り当ててください" };
+  }
+  if (r.room_id === input.room_id) {
+    return { ok: true as const };
+  }
+
+  const { data: overlaps, error: overlapErr } = await supabase
+    .from("reservations")
+    .select("id, guest_name")
+    .eq("room_id", input.room_id)
+    .neq("status", "cancelled")
+    .neq("id", input.id)
+    .lt("check_in_date", r.check_out_date)
+    .gt("check_out_date", r.check_in_date);
+
+  if (overlapErr) return { error: overlapErr.message };
+  if (overlaps && overlaps.length > 0) {
+    const other = overlaps[0].guest_name ?? "他予約";
+    return {
+      error: `移動先の部屋に重なる予約があります（${other}）`,
+    };
+  }
+
+  const { error } = await supabase
+    .from("reservations")
+    .update({ room_id: input.room_id })
+    .eq("id", input.id);
+
+  if (error) return { error: error.message };
+
+  revalidatePath("/reservations");
+  revalidatePath("/tasks");
+  revalidatePath("/rooms");
+  return { ok: true as const };
 }
 
 export async function changeReservationStatus(

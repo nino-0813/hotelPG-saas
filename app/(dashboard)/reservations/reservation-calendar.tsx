@@ -2,8 +2,16 @@
 
 import { addDays, differenceInCalendarDays, format, isSameDay } from "date-fns";
 import { ja } from "date-fns/locale";
-import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import {
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+  type DragEvent,
+} from "react";
 import clsx from "clsx";
+import { moveReservationRoom } from "./actions";
 import type {
   Property,
   Reservation,
@@ -28,10 +36,19 @@ export function ReservationCalendar({
   startDate,
   days,
 }: Props) {
+  const router = useRouter();
   const start = useMemo(() => new Date(startDate), [startDate]);
   const [modalState, setModalState] = useState<ModalState>({ mode: "closed" });
+  const [draggingReservationId, setDraggingReservationId] = useState<
+    string | null
+  >(null);
+  const [dropTargetRoomId, setDropTargetRoomId] = useState<string | null>(null);
+  const [moveError, setMoveError] = useState<string | null>(null);
+  const dragMovedRef = useRef(false);
+  const [movePending, startMove] = useTransition();
 
   const openNewModal = (roomId: string, date: Date) => {
+    if (draggingReservationId || dragMovedRef.current) return;
     setModalState({
       mode: "new",
       roomId,
@@ -42,6 +59,30 @@ export function ReservationCalendar({
     setModalState({ mode: "view", reservation });
   };
   const closeModal = () => setModalState({ mode: "closed" });
+
+  const handleReservationDrop = (reservationId: string, targetRoomId: string) => {
+    const r = reservations.find((x) => x.id === reservationId);
+    if (!r?.room_id || r.room_id === targetRoomId) {
+      setDraggingReservationId(null);
+      setDropTargetRoomId(null);
+      return;
+    }
+    setMoveError(null);
+    startMove(async () => {
+      const result = await moveReservationRoom({
+        id: reservationId,
+        room_id: targetRoomId,
+      });
+      setDraggingReservationId(null);
+      setDropTargetRoomId(null);
+      if (result.error) {
+        setMoveError(result.error);
+        return;
+      }
+      dragMovedRef.current = true;
+      router.refresh();
+    });
+  };
 
   const dates = useMemo(
     () => Array.from({ length: days }, (_, i) => addDays(start, i)),
@@ -159,6 +200,27 @@ export function ReservationCalendar({
       )}
       style={{ overscrollBehaviorX: "contain", overscrollBehaviorY: "auto" }}
     >
+      {moveError ? (
+        <div
+          className="border-b border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800 sm:text-sm"
+          role="alert"
+        >
+          {moveError}
+          <button
+            type="button"
+            className="ml-2 underline"
+            onClick={() => setMoveError(null)}
+          >
+            閉じる
+          </button>
+        </div>
+      ) : null}
+      {draggingReservationId ? (
+        <div className="border-b border-sky-200 bg-sky-50 px-3 py-1.5 text-[11px] text-sky-900 sm:text-xs">
+          移動先の部屋の行にドロップしてください（日付は変わりません）
+          {movePending ? " …保存中" : ""}
+        </div>
+      ) : null}
       <div
         className="relative grid"
         style={{
@@ -218,6 +280,10 @@ export function ReservationCalendar({
               roomRowMap={roomRowMap}
               propHeaderRow={propHeaderRow}
               onCellClick={openNewModal}
+              draggingReservationId={draggingReservationId}
+              dropTargetRoomId={dropTargetRoomId}
+              onDropTargetRoomChange={setDropTargetRoomId}
+              onReservationDrop={handleReservationDrop}
             />
           );
         })}
@@ -250,7 +316,29 @@ export function ReservationCalendar({
               gridRow={row}
               gridColumnStart={startCol}
               gridColumnEnd={endCol}
-              onClick={() => openViewModal(r)}
+              isDragging={draggingReservationId === r.id}
+              draggable={
+                r.status !== "cancelled" && !!r.room_id && !movePending
+              }
+              onDragStart={() => {
+                dragMovedRef.current = false;
+                setMoveError(null);
+                setDraggingReservationId(r.id);
+              }}
+              onDragMove={() => {
+                dragMovedRef.current = true;
+              }}
+              onDragEnd={() => {
+                setDraggingReservationId(null);
+                setDropTargetRoomId(null);
+              }}
+              onClick={() => {
+                if (dragMovedRef.current) {
+                  dragMovedRef.current = false;
+                  return;
+                }
+                openViewModal(r);
+              }}
             />
           );
         })}
@@ -275,6 +363,10 @@ function PropertyGroup({
   roomRowMap,
   propHeaderRow,
   onCellClick,
+  draggingReservationId,
+  dropTargetRoomId,
+  onDropTargetRoomChange,
+  onReservationDrop,
 }: {
   title: string;
   property: Property;
@@ -284,6 +376,10 @@ function PropertyGroup({
   roomRowMap: Map<string, number>;
   propHeaderRow: number | null;
   onCellClick: (roomId: string, date: Date) => void;
+  draggingReservationId: string | null;
+  dropTargetRoomId: string | null;
+  onDropTargetRoomChange: (roomId: string | null) => void;
+  onReservationDrop: (reservationId: string, targetRoomId: string) => void;
 }) {
   if (rooms.length === 0 || propHeaderRow === null) return null;
 
@@ -332,6 +428,30 @@ function PropertyGroup({
             dates={dates}
             today={today}
             onCellClick={(date) => onCellClick(room.id, date)}
+            isDropTarget={
+              !!draggingReservationId && dropTargetRoomId === room.id
+            }
+            onDragEnter={() => {
+              if (draggingReservationId) onDropTargetRoomChange(room.id);
+            }}
+            onDragLeave={(e) => {
+              if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                if (dropTargetRoomId === room.id) onDropTargetRoomChange(null);
+              }
+            }}
+            onDragOver={(e) => {
+              if (!draggingReservationId) return;
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "move";
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              const id =
+                e.dataTransfer.getData("application/x-reservation-id") ||
+                draggingReservationId;
+              if (id) onReservationDrop(id, room.id);
+              onDropTargetRoomChange(null);
+            }}
           />
         );
       })}
@@ -345,12 +465,22 @@ function RoomRow({
   dates,
   today,
   onCellClick,
+  isDropTarget,
+  onDragEnter,
+  onDragLeave,
+  onDragOver,
+  onDrop,
 }: {
   room: Room;
   row: number;
   dates: Date[];
   today: Date;
   onCellClick: (date: Date) => void;
+  isDropTarget: boolean;
+  onDragEnter: () => void;
+  onDragLeave: (e: DragEvent) => void;
+  onDragOver: (e: DragEvent) => void;
+  onDrop: (e: DragEvent) => void;
 }) {
   const typeBadgeCls = (() => {
     switch (room.room_type) {
@@ -370,10 +500,17 @@ function RoomRow({
 
   return (
     <>
-      {/* Room label (sticky left) */}
+      {/* Room label (sticky left) — drop zone for room moves */}
       <div
-        className="sticky left-0 z-[15] flex flex-col justify-center border-b border-r border-neutral-200 bg-white px-1.5 sm:px-3"
+        className={clsx(
+          "sticky left-0 z-[15] flex flex-col justify-center border-b border-r border-neutral-200 px-1.5 sm:px-3",
+          isDropTarget ? "bg-sky-100 ring-2 ring-inset ring-sky-400" : "bg-white",
+        )}
         style={{ gridRow: row, gridColumn: 1, height: "var(--cal-row)" }}
+        onDragEnter={onDragEnter}
+        onDragLeave={onDragLeave}
+        onDragOver={onDragOver}
+        onDrop={onDrop}
       >
         <div className="text-xs font-medium leading-tight sm:text-sm">
           {room.room_number}
@@ -399,11 +536,16 @@ function RoomRow({
             type="button"
             key={d.toISOString()}
             onClick={() => onCellClick(d)}
+            onDragEnter={onDragEnter}
+            onDragLeave={onDragLeave}
+            onDragOver={onDragOver}
+            onDrop={onDrop}
             className={clsx(
               "border-b border-r border-neutral-200 transition hover:bg-neutral-100/50",
-              isToday && "bg-amber-50/60",
-              !isToday && dayOfWeek === 0 && "bg-red-50/40",
-              !isToday && dayOfWeek === 6 && "bg-blue-50/40",
+              isDropTarget && "bg-sky-100/80 ring-2 ring-inset ring-sky-400",
+              isToday && !isDropTarget && "bg-amber-50/60",
+              !isToday && dayOfWeek === 0 && !isDropTarget && "bg-red-50/40",
+              !isToday && dayOfWeek === 6 && !isDropTarget && "bg-blue-50/40",
             )}
             style={{ gridRow: row, gridColumn: i + 2, height: "var(--cal-row)" }}
             aria-label={`${room.room_number} ${format(d, "M/d")} 新規予約`}
@@ -419,12 +561,22 @@ function ReservationBlock({
   gridRow,
   gridColumnStart,
   gridColumnEnd,
+  isDragging,
+  draggable,
+  onDragStart,
+  onDragMove,
+  onDragEnd,
   onClick,
 }: {
   reservation: Reservation;
   gridRow: number;
   gridColumnStart: number;
   gridColumnEnd: number;
+  isDragging: boolean;
+  draggable: boolean;
+  onDragStart: () => void;
+  onDragMove: () => void;
+  onDragEnd: () => void;
   onClick: () => void;
 }) {
   const { color, border } = colorForStatus(reservation.status);
@@ -434,10 +586,23 @@ function ReservationBlock({
   return (
     <button
       type="button"
+      draggable={draggable}
+      onDragStart={(e) => {
+        e.dataTransfer.setData(
+          "application/x-reservation-id",
+          reservation.id,
+        );
+        e.dataTransfer.effectAllowed = "move";
+        onDragStart();
+      }}
+      onDrag={onDragMove}
+      onDragEnd={onDragEnd}
       onClick={onClick}
       className={clsx(
-        "z-10 flex cursor-pointer items-center gap-1 overflow-hidden rounded px-1.5 py-0.5 text-left text-[10px] shadow-sm transition sm:m-1 sm:gap-1.5 sm:rounded-md sm:px-2 sm:py-1 sm:text-xs",
+        "z-10 flex cursor-grab items-center gap-1 overflow-hidden rounded px-1.5 py-0.5 text-left text-[10px] shadow-sm transition active:cursor-grabbing sm:m-1 sm:gap-1.5 sm:rounded-md sm:px-2 sm:py-1 sm:text-xs",
         "hover:shadow-md sm:hover:scale-[1.01]",
+        !draggable && "cursor-pointer",
+        isDragging && "opacity-40 ring-2 ring-sky-400",
         color,
         border,
         "border",
