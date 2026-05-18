@@ -6,7 +6,6 @@ import { ja } from "date-fns/locale";
 import { sendMail } from "@/lib/gmail";
 import { roomTypeLabel } from "@/lib/room-type-labels";
 import { createClient } from "@/lib/supabase/server";
-import { syncAllEnabledCalendars } from "@/lib/ical/sync";
 import type {
   PaymentMethod,
   ReservationStatus,
@@ -218,6 +217,7 @@ export async function assignReservationRoom(input: AssignReservationInput) {
  * This reduces the chance of double booking due to stale OTA data.
  */
 export async function syncExternalCalendars() {
+  const { syncAllEnabledCalendars } = await import("@/lib/ical/sync");
   const supabase = await createClient();
   const results = await syncAllEnabledCalendars(supabase);
   revalidatePath("/reservations");
