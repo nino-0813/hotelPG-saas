@@ -1,4 +1,4 @@
-import * as ical from "node-ical";
+import { extractVevents, icsValueToDateYmd } from "./parse-vevents";
 
 export type ParsedReservation = {
   uid: string;
@@ -29,16 +29,11 @@ export async function fetchIcs(url: string): Promise<string> {
 }
 
 export function parseIcs(icsText: string): ParsedReservation[] {
-  const data = ical.sync.parseICS(icsText);
   const events: ParsedReservation[] = [];
 
-  for (const key in data) {
-    const item = data[key];
-    if (!item || item.type !== "VEVENT") continue;
-    const ev = item as ical.VEvent;
-
-    const summary = String(ev.summary ?? "");
-    const description = unfoldDescription(String(ev.description ?? ""));
+  for (const ev of extractVevents(icsText)) {
+    const summary = ev.summary;
+    const description = unfoldDescription(ev.description);
     const desc = parseDescription(description);
     const guestPhone = extractGuestPhone(desc, description);
     const guestEmail = normalizeEmail(desc.EMAIL) ?? extractEmailFromText(description);
@@ -51,9 +46,11 @@ export function parseIcs(icsText: string): ParsedReservation[] {
     // Prefer DESCRIPTION's CHECKIN/CHECKOUT (unambiguous YYYY/MM/DD).
     // Fall back to DTSTART/DTEND only if missing.
     const checkInDate =
-      normalizeDate(desc.CHECKIN) ?? formatUtcDate(ev.start);
+      normalizeDate(desc.CHECKIN) ??
+      icsValueToDateYmd(ev.dtstart, ev.dtstartParams);
     const checkOutDate =
-      normalizeDate(desc.CHECKOUT) ?? formatUtcDate(ev.end);
+      normalizeDate(desc.CHECKOUT) ??
+      icsValueToDateYmd(ev.dtend, ev.dtendParams);
 
     if (!checkInDate || !checkOutDate) continue;
     if (!ev.uid) continue;
@@ -71,7 +68,7 @@ export function parseIcs(icsText: string): ParsedReservation[] {
     const price = desc.PRICE ? Number(desc.PRICE) : null;
 
     events.push({
-      uid: String(ev.uid),
+      uid: ev.uid,
       guest_name: guestName,
       guest_phone: guestPhone,
       guest_email: guestEmail,
@@ -91,9 +88,7 @@ export function parseIcs(icsText: string): ParsedReservation[] {
   return events;
 }
 
-// Some iCal generators wrap long DESCRIPTION lines with leading-space
-// continuations. node-ical mostly handles unfolding, but DESCRIPTION values
-// with embedded literal "\n" tokens still need normalization.
+// DESCRIPTION values with embedded literal "\n" tokens need normalization.
 function unfoldDescription(s: string): string {
   return s.replace(/\\n/g, "\n").replace(/\\,/g, ",");
 }
@@ -201,14 +196,4 @@ function normalizeDate(input: string | undefined): string | null {
   const mo = m[2].padStart(2, "0");
   const d = m[3].padStart(2, "0");
   return `${y}-${mo}-${d}`;
-}
-
-function formatUtcDate(input: Date | undefined): string | null {
-  if (!input) return null;
-  const d = input instanceof Date ? input : new Date(input);
-  if (isNaN(d.getTime())) return null;
-  const y = d.getUTCFullYear();
-  const mo = String(d.getUTCMonth() + 1).padStart(2, "0");
-  const day = String(d.getUTCDate()).padStart(2, "0");
-  return `${y}-${mo}-${day}`;
 }

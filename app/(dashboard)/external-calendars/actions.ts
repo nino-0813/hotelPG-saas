@@ -2,7 +2,6 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { syncAllEnabledCalendars, syncOneCalendar } from "@/lib/ical/sync";
 import type { RoomType } from "@/lib/types/database";
 
 export type AddCalendarInput = {
@@ -73,6 +72,7 @@ export async function deleteCalendar(id: string) {
 }
 
 export async function syncCalendar(id: string) {
+  const { syncOneCalendar } = await import("@/lib/ical/sync");
   const supabase = await createClient();
   const result = await syncOneCalendar(supabase, id);
   revalidatePath("/external-calendars");
@@ -81,6 +81,7 @@ export async function syncCalendar(id: string) {
 }
 
 export async function syncAll() {
+  const { syncAllEnabledCalendars } = await import("@/lib/ical/sync");
   const supabase = await createClient();
   const results = await syncAllEnabledCalendars(supabase);
   revalidatePath("/external-calendars");
