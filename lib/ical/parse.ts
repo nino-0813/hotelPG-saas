@@ -33,6 +33,11 @@ export function parseIcs(icsText: string): ParsedReservation[] {
 
   for (const ev of extractVevents(icsText)) {
     const summary = ev.summary;
+
+    // OTA(楽天/Airbnb等)は「販売停止・在庫クローズ」を予約と同じ VEVENT で出す。
+    // 例: SUMMARY:Not available。これはゲスト予約ではないので取り込まない。
+    if (isOtaBlockSummary(summary)) continue;
+
     const description = unfoldDescription(ev.description);
     const desc = parseDescription(description);
     const guestPhone = extractGuestPhone(desc, description);
@@ -54,6 +59,8 @@ export function parseIcs(icsText: string): ParsedReservation[] {
 
     if (!checkInDate || !checkOutDate) continue;
     if (!ev.uid) continue;
+    // チェックアウト ≤ チェックインの無効な期間（ブロックの取り込み残骸など）は除外。
+    if (checkOutDate <= checkInDate) continue;
 
     const guests = desc.GUESTS ?? "";
     const adults = pickInt(guests, /ADULTS:\s*(\d+)/);
@@ -86,6 +93,27 @@ export function parseIcs(icsText: string): ParsedReservation[] {
   }
 
   return events;
+}
+
+/**
+ * OTA が在庫クローズ／販売停止を表すために出す VEVENT を判定する。
+ * 楽天・Airbnb 等は予約と同じ形式でブロックを出すため、SUMMARY で見分ける。
+ */
+const OTA_BLOCK_SUMMARY_PATTERNS: RegExp[] = [
+  /not\s*available/i,
+  /\bblocked?\b/i,
+  /\bclosed?\b/i,
+  /stop\s*sale/i,
+  /unavailable/i,
+  /予約不可/,
+  /受付停止/,
+  /販売停止/,
+];
+
+function isOtaBlockSummary(summary: string): boolean {
+  const s = summary.trim();
+  if (!s) return false;
+  return OTA_BLOCK_SUMMARY_PATTERNS.some((re) => re.test(s));
 }
 
 // DESCRIPTION values with embedded literal "\n" tokens need normalization.
