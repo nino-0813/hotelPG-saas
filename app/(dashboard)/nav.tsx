@@ -10,6 +10,7 @@ const NAV_ITEMS = [
 ] as const;
 
 const ADMIN_NAV_ITEMS = [
+  { href: "/rakuten-inventory", label: "楽天在庫" },
   { href: "/external-calendars", label: "外部連携" },
 ] as const;
 
