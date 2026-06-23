@@ -5,6 +5,8 @@ import { loadPublicStayAvailability } from "@/lib/availability/load-public-stay-
 import { formatStripeWebReservationSpecialNotes } from "@/lib/stripe/stripe-web-checkout-pricing";
 import { createReservationWithAssignment } from "@/lib/reservations/create-reservation-with-assignment";
 import { insertStripeWebhookLog } from "@/lib/stripe/webhook-event-log";
+import { sendMail } from "@/lib/gmail";
+import { buildReservationConfirmedEmail } from "@/lib/mail/reservation-confirmed";
 import {
   formatStripeWebReservationLineMessage,
   getLineChannelAccessToken,
@@ -212,6 +214,39 @@ export async function POST(req: NextRequest) {
       has_smart_key_code: null,
     });
     return new NextResponse("OK", { status: 200 });
+  }
+
+  // ゲストへ予約確定メールを自動送信（手動送信と同一の文面）。
+  // 失敗してもWebhookは200を返す（管理画面から手動再送できる）。
+  try {
+    const { data: r, error: rErr } = await supabase
+      .from("reservations")
+      .select(
+        "guest_name, guest_email, guest_count, check_in_date, check_out_date, payment_method, requested_room_type, rooms(room_number, room_type, properties(code))",
+      )
+      .eq("id", created.reservationId)
+      .single();
+
+    if (rErr || !r) {
+      console.error("[stripe/webhook] confirm-mail reload failed", rErr);
+    } else {
+      const built = buildReservationConfirmedEmail(r);
+      if ("error" in built) {
+        console.warn("[stripe/webhook] confirm-mail skipped:", built.error);
+      } else {
+        await sendMail(built.to, built.subject, built.body);
+        await supabase
+          .from("reservations")
+          .update({ guest_mail_reservation_confirmed_sent_at: new Date().toISOString() })
+          .eq("id", created.reservationId);
+        await supabase.from("reservation_logs").insert({
+          reservation_id: created.reservationId,
+          action: "mail_reservation_confirmed_sent",
+        });
+      }
+    }
+  } catch (e) {
+    console.error("[stripe/webhook] confirm-mail send exception", e);
   }
 
   const lineToken = getLineChannelAccessToken();
