@@ -7,6 +7,7 @@ import {
 } from "@/lib/availability/public-availability";
 import { buildPublicListPriceForDate } from "@/lib/availability/public-catalog-pricing";
 import { resolvePublicAvailabilityCap } from "@/lib/availability/public-inventory-caps";
+import { fallbackMaxGuests } from "@/lib/availability/resolve-room-max-guests";
 import {
   hasListPriceRule,
   resolvePg3WebCatalogRoomType,
@@ -420,7 +421,14 @@ export async function GET(req: NextRequest) {
       computeOptions,
     );
 
-    return NextResponse.json(body, {
+    const maxGuests =
+      rateCode && catalogRateRoomType
+        ? dbRoomSetting?.is_active
+          ? dbRoomSetting.max_guests
+          : fallbackMaxGuests(rateCode, catalogRateRoomType)
+        : undefined;
+
+    return NextResponse.json(maxGuests !== undefined ? { ...body, maxGuests } : body, {
       headers: {
         ...corsJsonHeaders,
         "Cache-Control": "public, s-maxage=60, stale-while-revalidate=120",
