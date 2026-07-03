@@ -18,7 +18,6 @@ import {
 } from "@/lib/availability/seasonal-room-rates";
 import type {
   PublicGuestPriceRuleRow,
-  PublicInventoryCapRow,
   PublicRoomSettingRow,
   PublicSeasonalRoomRateRow,
 } from "@/lib/types/public-catalog";
@@ -308,23 +307,17 @@ export async function GET(req: NextRequest) {
         : roomTypeParam;
 
     let dbRoomSetting: PublicRoomSettingRow | null = null;
-    let dbInventoryCaps: PublicInventoryCapRow[] | null = null;
     let seasonalRows: PublicSeasonalRoomRateRow[] = [];
     let guestPriceRules: PublicGuestPriceRuleRow[] = [];
 
     if (rateCode && catalogRateRoomType) {
-      const [rsRes, icRes, seasonal, guestRules] = await Promise.all([
+      const [rsRes, seasonal, guestRules] = await Promise.all([
         supabase
           .from("public_room_settings")
           .select("*")
           .eq("property_code", rateCode)
           .eq("room_type", catalogRateRoomType)
           .maybeSingle(),
-        supabase
-          .from("public_inventory_caps")
-          .select("*")
-          .eq("property_code", rateCode)
-          .eq("room_type", catalogRateRoomType),
         fetchSeasonalRoomRatesForWindow(supabase, {
           propertyCode: rateCode,
           roomType: catalogRateRoomType,
@@ -344,12 +337,6 @@ export async function GET(req: NextRequest) {
         console.error("[public/availability] public_room_settings", rsRes.error);
       } else {
         dbRoomSetting = (rsRes.data as PublicRoomSettingRow | null) ?? null;
-      }
-      if (icRes.error) {
-        console.error("[public/availability] public_inventory_caps", icRes.error);
-        dbInventoryCaps = null;
-      } else {
-        dbInventoryCaps = (icRes.data as PublicInventoryCapRow[] | null) ?? [];
       }
     }
 
@@ -377,9 +364,7 @@ export async function GET(req: NextRequest) {
     const availabilityCap = resolvePublicAvailabilityCap(
       rateCode,
       catalogRateRoomType ?? roomTypeParam,
-      roomTypesFilter,
-      partySize,
-      dbInventoryCaps,
+      dbRoomSetting,
     );
 
     const availabilityCapForDate =

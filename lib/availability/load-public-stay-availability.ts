@@ -16,10 +16,7 @@ import {
   fetchSeasonalRoomRatesForWindow,
   pickBestSeasonalRateForDate,
 } from "@/lib/availability/seasonal-room-rates";
-import type {
-  PublicInventoryCapRow,
-  PublicRoomSettingRow,
-} from "@/lib/types/public-catalog";
+import type { PublicRoomSettingRow } from "@/lib/types/public-catalog";
 import {
   pendingUnassignedMatchAndClause,
   resolveDbRoomTypesForBooking,
@@ -111,18 +108,13 @@ export async function loadPublicStayAvailability(params: {
   if (resErr) throw new Error("Failed to load reservations");
   const reservations = reservationsRaw ?? [];
 
-  const [rsRes, icRes, seasonalRows, guestPriceRules] = await Promise.all([
+  const [rsRes, seasonalRows, guestPriceRules] = await Promise.all([
     supabase
       .from("public_room_settings")
       .select("*")
       .eq("property_code", p.code)
       .eq("room_type", catalogRoomType)
       .maybeSingle(),
-    supabase
-      .from("public_inventory_caps")
-      .select("*")
-      .eq("property_code", p.code)
-      .eq("room_type", catalogRoomType),
     fetchSeasonalRoomRatesForWindow(supabase, {
       propertyCode: p.code,
       roomType: catalogRoomType,
@@ -136,7 +128,6 @@ export async function loadPublicStayAvailability(params: {
   ]);
 
   const dbRoomSetting = (rsRes.data as PublicRoomSettingRow | null) ?? null;
-  const dbInventoryCaps = (icRes.data as PublicInventoryCapRow[] | null) ?? [];
 
   const hasDbPrice = dbRoomSetting !== null && dbRoomSetting.is_active === true;
   const hasCodePrice = !hasDbPrice && hasListPriceRule(p.code, catalogRoomType);
@@ -156,9 +147,7 @@ export async function loadPublicStayAvailability(params: {
   const availabilityCap = resolvePublicAvailabilityCap(
     p.code,
     catalogRoomType,
-    roomTypesFilter,
-    guestCount,
-    dbInventoryCaps,
+    dbRoomSetting,
   );
 
   const availabilityCapForDate = (dateYmd: string) => {
