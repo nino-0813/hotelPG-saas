@@ -1,6 +1,10 @@
 import { differenceInCalendarDays, parseISO } from "date-fns";
 import { NextResponse, type NextRequest } from "next/server";
-import { validatePg3WashitsuWebGuestCount } from "@/lib/availability/public-rate-rules";
+import {
+  resolvePg3WebCatalogRoomType,
+  validatePg3WashitsuWebGuestCount,
+} from "@/lib/availability/public-rate-rules";
+import { resolvePublicRoomMaxGuests } from "@/lib/availability/resolve-room-max-guests";
 import { computePublicCheckoutForStay } from "@/lib/stripe/compute-public-checkout-for-stay";
 import { createStripeCheckoutSession } from "@/lib/stripe/stripe-api";
 
@@ -75,10 +79,8 @@ export async function POST(req: NextRequest) {
   const c = Number.isFinite(children) ? Number(children) : 0;
   const guestCount = a + c;
   if (guestCount < 1) return bad("adults + children must be >= 1");
-  const maxGuests =
-    propertyCode === "PG3" && roomType === "maisonette_6"
-      ? 6
-      : 4;
+  const catalogRoomTypeForCap = resolvePg3WebCatalogRoomType(propertyCode, roomType, guestCount);
+  const maxGuests = await resolvePublicRoomMaxGuests(propertyCode, catalogRoomTypeForCap);
   if (guestCount > maxGuests) return bad(`guestCount must be <= ${maxGuests}`);
 
   if (!guestName || typeof guestName !== "string" || !guestName.trim()) {
