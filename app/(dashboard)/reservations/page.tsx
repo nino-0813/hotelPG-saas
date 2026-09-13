@@ -9,6 +9,7 @@ import type {
 } from "@/lib/types/database";
 import { PendingAssignments } from "./pending-assignments";
 import { ReservationCalendar } from "./reservation-calendar";
+import { ReservationViewTabs } from "./reservation-view-tabs";
 
 type SearchParams = Promise<{ start?: string; days?: string }>;
 
@@ -86,7 +87,7 @@ export default async function ReservationsPage({
     <main className="min-w-0 max-w-full px-4 py-4 sm:px-6 sm:py-6">
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight">予約一覧</h1>
+          <h1 className="text-xl font-semibold tracking-tight">予約カレンダー</h1>
           <p className="mt-0.5 text-sm text-neutral-500">
             {format(startDate, "yyyy/MM/dd")} 〜{" "}
             {format(addDays(startDate, days - 1), "yyyy/MM/dd")} ({days}日間)
@@ -94,6 +95,8 @@ export default async function ReservationsPage({
         </div>
         <DateRangeNav startDate={startDate} days={days} />
       </div>
+
+      <ReservationViewTabs active="calendar" />
 
       <PendingAssignments
         pending={pending ?? []}

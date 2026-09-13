@@ -10,7 +10,10 @@ const NAV_ITEMS = [
 ] as const;
 
 const ADMIN_NAV_ITEMS = [
+  { href: "/customers", label: "顧客台帳" },
+  { href: "/housekeeping", label: "清掃" },
   { href: "/reports", label: "売上・稼働率", icon: "chart" },
+  { href: "/masters", label: "プラン・経路" },
   { href: "/pricing", label: "料金管理", icon: "pricing" },
   { href: "/rakuten-inventory", label: "楽天在庫" },
   { href: "/external-calendars", label: "外部連携" },
@@ -83,10 +86,10 @@ export function DesktopNav({ isAdmin = false }: { isAdmin?: boolean }) {
 export function MobileBottomNav({ isAdmin = false }: { isAdmin?: boolean }) {
   const pathname = usePathname();
   const navItems = isAdmin
-    ? [...NAV_ITEMS, ...ADMIN_NAV_ITEMS.slice(0, 2)]
+    ? [NAV_ITEMS[0], NAV_ITEMS[1], ADMIN_NAV_ITEMS[0], ADMIN_NAV_ITEMS[1], ADMIN_NAV_ITEMS[2]]
     : NAV_ITEMS.filter((item) => item.href === "/rooms");
   const gridCols =
-    navItems.length <= 1 ? "grid-cols-1" : "grid-cols-4";
+    navItems.length <= 1 ? "grid-cols-1" : "grid-cols-5";
   return (
     <nav
       className={clsx(

@@ -19,11 +19,14 @@ import {
   getCheckInEmailDraft,
   getReservationConfirmedEmailDraft,
   syncExternalCalendars,
+  moveReservationRoom,
   updateReservation,
   type GuestEmailDraft,
 } from "./actions";
 import { cancelReservation } from "@/app/actions/cancelReservation";
 import { summarizeMultipleSyncResults } from "@/lib/ical/sync-summary";
+import { roomTypeLabel } from "@/lib/room-type-labels";
+import { reservationRevenue, withRevenueAmount } from "@/lib/revenue";
 
 function reservationSourceLabel(s: string | null | undefined): string {
   if (!s) return "—";
@@ -316,12 +319,13 @@ function NewReservationForm({
         </Field>
 
         <Field label="予約元">
-          <input
-            name="source"
-            className={inputCls}
-            placeholder="manual / booking.com / airbnb"
-            defaultValue="manual"
-          />
+          <select name="source" className={inputCls} defaultValue="manual">
+            <option value="manual">手入力・その他</option>
+            <option value="phone">電話予約</option>
+            <option value="onsite">現地予約</option>
+            <option value="stripe_web">公式サイト</option>
+            <option value="rakuten_oyado">楽天</option>
+          </select>
         </Field>
 
         {error ? (
@@ -530,6 +534,8 @@ function ReservationDetail({
         reservation={reservation}
         property={property}
         room={room}
+        rooms={rooms}
+        properties={properties}
         onCancel={() => setEditing(false)}
         onSaved={onClose}
       />
@@ -805,12 +811,16 @@ function EditReservationForm({
   reservation,
   property,
   room,
+  rooms,
+  properties,
   onCancel,
   onSaved,
 }: {
   reservation: Reservation;
   property: Property | undefined;
   room: Room | undefined;
+  rooms: Room[];
+  properties: Property[];
   onCancel: () => void;
   onSaved: () => void;
 }) {
@@ -820,6 +830,17 @@ function EditReservationForm({
   const handleSubmit = (formData: FormData) => {
     startTransition(async () => {
       setError(null);
+      const nextRoomId = String(formData.get("room_id") || "");
+      if (nextRoomId && nextRoomId !== reservation.room_id) {
+        const moveResult = await moveReservationRoom({
+          id: reservation.id,
+          room_id: nextRoomId,
+        });
+        if (moveResult.error) {
+          setError(moveResult.error);
+          return;
+        }
+      }
       const result = await updateReservation({
         id: reservation.id,
         guest_name: String(formData.get("guest_name")),
@@ -831,7 +852,10 @@ function EditReservationForm({
         check_out_time: String(formData.get("check_out_time") || "11:00"),
         payment_method: String(formData.get("payment_method")) as PaymentMethod,
         smart_key_code: String(formData.get("smart_key_code") || ""),
-        special_notes: String(formData.get("special_notes") || ""),
+        special_notes: withRevenueAmount(
+          String(formData.get("special_notes") || ""),
+          Number(formData.get("revenue_amount")) || 0,
+        ),
         source: String(formData.get("source") || ""),
       });
       if (result.error) setError(result.error);
@@ -859,6 +883,25 @@ function EditReservationForm({
             defaultValue={reservation.guest_name}
             className={inputCls}
           />
+        </Field>
+
+        <Field label="部屋" required>
+          <select
+            name="room_id"
+            required
+            defaultValue={reservation.room_id ?? ""}
+            className={inputCls}
+          >
+            <option value="" disabled>部屋を選択</option>
+            {rooms.map((candidate) => (
+              <option key={candidate.id} value={candidate.id}>
+                {properties.find((item) => item.id === candidate.property_id)?.name ?? "施設"} / {candidate.room_number}（{roomTypeLabel(candidate.room_type)}）
+              </option>
+            ))}
+          </select>
+          <span className="mt-1 block text-xs text-neutral-500">
+            スマートフォンではここから部屋を変更できます。
+          </span>
         </Field>
 
         <div className="grid grid-cols-2 gap-3">
@@ -954,6 +997,21 @@ function EditReservationForm({
           />
         </Field>
 
+        <Field label="売上金額（税込）">
+          <input
+            name="revenue_amount"
+            type="number"
+            min={0}
+            step={1}
+            defaultValue={reservationRevenue(reservation) || ""}
+            placeholder="例：18000"
+            className={inputCls}
+          />
+          <span className="mt-1 block text-xs text-neutral-500">
+            Stripe以外の楽天・電話・現地予約も入力できます。
+          </span>
+        </Field>
+
         <Field label="特記事項">
           <textarea
             name="special_notes"
@@ -964,11 +1022,14 @@ function EditReservationForm({
         </Field>
 
         <Field label="予約元">
-          <input
-            name="source"
-            defaultValue={reservation.source ?? ""}
-            className={inputCls}
-          />
+          <select name="source" defaultValue={reservation.source ?? "manual"} className={inputCls}>
+            {reservation.source && !["manual", "phone", "onsite", "stripe_web", "rakuten_oyado"].includes(reservation.source) ? <option value={reservation.source}>{reservation.source}（既存値）</option> : null}
+            <option value="manual">手入力・その他</option>
+            <option value="phone">電話予約</option>
+            <option value="onsite">現地予約</option>
+            <option value="stripe_web">公式サイト</option>
+            <option value="rakuten_oyado">楽天</option>
+          </select>
         </Field>
 
         {error ? (

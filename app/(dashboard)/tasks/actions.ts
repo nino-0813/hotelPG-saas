@@ -14,6 +14,7 @@ export async function updateTaskStatus(taskId: string, status: TaskStatus) {
   if (error) return { error: error.message };
 
   revalidatePath("/tasks");
+  revalidatePath("/housekeeping");
   return { ok: true };
 }
 
@@ -32,6 +33,7 @@ export async function assignTaskToMe(taskId: string) {
   if (error) return { error: error.message };
 
   revalidatePath("/tasks");
+  revalidatePath("/housekeeping");
   return { ok: true };
 }
 
@@ -45,5 +47,6 @@ export async function unassignTask(taskId: string) {
   if (error) return { error: error.message };
 
   revalidatePath("/tasks");
+  revalidatePath("/housekeeping");
   return { ok: true };
 }

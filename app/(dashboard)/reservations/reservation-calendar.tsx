@@ -44,6 +44,7 @@ export function ReservationCalendar({
   >(null);
   const [dropTargetRoomId, setDropTargetRoomId] = useState<string | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
+  const [moveSuccess, setMoveSuccess] = useState<string | null>(null);
   const dragMovedRef = useRef(false);
   const [movePending, startMove] = useTransition();
 
@@ -68,6 +69,7 @@ export function ReservationCalendar({
       return;
     }
     setMoveError(null);
+    setMoveSuccess(null);
     startMove(async () => {
       const result = await moveReservationRoom({
         id: reservationId,
@@ -77,10 +79,17 @@ export function ReservationCalendar({
       setDropTargetRoomId(null);
       if (result.error) {
         setMoveError(result.error);
+        dragMovedRef.current = false;
         return;
       }
-      dragMovedRef.current = true;
+      const targetRoom = rooms.find((room) => room.id === targetRoomId);
+      setMoveSuccess(
+        `${r.guest_name}様の予約を「${targetRoom?.room_number ?? "選択した部屋"}」へ移動しました`,
+      );
       router.refresh();
+      window.setTimeout(() => {
+        dragMovedRef.current = false;
+      }, 0);
     });
   };
 
@@ -174,7 +183,14 @@ export function ReservationCalendar({
   })();
 
   return (
-    <div
+    <div className="space-y-2">
+      <div className="flex flex-wrap gap-x-4 gap-y-1 rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 text-xs text-neutral-700">
+        <span><strong className="font-semibold">詳細：</strong>予約をクリック</span>
+        <span><strong className="font-semibold">新規：</strong>空いている日をクリック</span>
+        <span className="hidden sm:inline"><strong className="font-semibold">部屋変更：</strong>予約を別の部屋へドラッグ</span>
+        <span className="sm:hidden"><strong className="font-semibold">部屋変更：</strong>予約の詳細から編集</span>
+      </div>
+      <div
       className={clsx(
         "max-w-full min-w-0 overflow-auto bg-white shadow-sm",
         // Constrain height so vertical scrolling happens INSIDE the calendar.
@@ -200,6 +216,22 @@ export function ReservationCalendar({
       )}
       style={{ overscrollBehaviorX: "contain", overscrollBehaviorY: "auto" }}
     >
+      {moveSuccess ? (
+        <div
+          className="flex items-center justify-between gap-3 border-b border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900 sm:text-sm"
+          role="status"
+          aria-live="polite"
+        >
+          <span>{moveSuccess}</span>
+          <button
+            type="button"
+            className="shrink-0 underline"
+            onClick={() => setMoveSuccess(null)}
+          >
+            閉じる
+          </button>
+        </div>
+      ) : null}
       {moveError ? (
         <div
           className="border-b border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800 sm:text-sm"
@@ -350,6 +382,7 @@ export function ReservationCalendar({
         properties={properties}
         rooms={rooms}
       />
+      </div>
     </div>
   );
 }
@@ -613,7 +646,13 @@ function ReservationBlock({
         gridColumnEnd,
       }}
       title={tooltipText(reservation)}
+      aria-label={`${reservation.guest_name}様、${reservation.guest_count}名。クリックで詳細、ドラッグで部屋変更`}
     >
+      {draggable ? (
+        <span className="hidden shrink-0 text-neutral-500 sm:inline" aria-hidden>
+          ⋮⋮
+        </span>
+      ) : null}
       {isOnsite ? (
         <span className="rounded bg-orange-200 px-0.5 text-[8px] font-semibold text-orange-900 sm:px-1 sm:text-[9px]">
           現
