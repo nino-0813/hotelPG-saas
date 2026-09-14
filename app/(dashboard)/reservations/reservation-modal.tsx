@@ -112,14 +112,14 @@ export function ReservationModal({ state, onClose, properties, rooms }: Props) {
 // New reservation
 // ============================================================
 
-function NewReservationForm({
+export function NewReservationForm({
   roomId,
   date,
   rooms,
   properties,
   onClose,
 }: {
-  roomId: string;
+  roomId?: string;
   date: string;
   rooms: Room[];
   properties: Property[];
@@ -145,7 +145,7 @@ function NewReservationForm({
     startTransition(async () => {
       setError(null);
       const result = await createReservation({
-        room_id: roomId,
+        room_id: String(formData.get("room_id") || roomId || ""),
         guest_name: String(formData.get("guest_name")),
         guest_phone: String(formData.get("guest_phone") || ""),
         guest_count: Number(formData.get("guest_count")) || 1,
@@ -219,6 +219,21 @@ function NewReservationForm({
             ) : null}
           </div>
         ) : null}
+        <Field label="部屋" required>
+          <select
+            name="room_id"
+            required
+            defaultValue={roomId ?? ""}
+            className={inputCls}
+          >
+            <option value="" disabled>部屋を選択</option>
+            {rooms.map((candidate) => (
+              <option key={candidate.id} value={candidate.id}>
+                {properties.find((item) => item.id === candidate.property_id)?.name ?? "施設"} / {candidate.room_number}（{roomTypeLabel(candidate.room_type)}）
+              </option>
+            ))}
+          </select>
+        </Field>
         <Field label="ゲスト名" required>
           <input
             name="guest_name"

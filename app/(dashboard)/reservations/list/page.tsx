@@ -70,6 +70,10 @@ export default async function ReservationListPage({ searchParams }: { searchPara
   const { data: allSources } = await supabase.from("reservations").select("source");
   const sourceOptions = Array.from(new Set((allSources ?? []).map((row) => row.source || "unknown"))).sort();
   const hasFilters = Boolean(q || status !== "all" || property !== "all" || source !== "all" || params.from || params.to);
+  const downloadParams = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (typeof value === "string" && value) downloadParams.set(key, value);
+  }
 
   return (
     <main className="mx-auto w-full max-w-[1500px] px-4 py-4 sm:px-6 sm:py-6">
@@ -78,7 +82,15 @@ export default async function ReservationListPage({ searchParams }: { searchPara
           <h1 className="text-xl font-semibold tracking-tight">予約一覧</h1>
           <p className="mt-1 text-sm text-neutral-500">宿泊日、お客様、ステータスから予約を探して、詳細確認や編集ができます。</p>
         </div>
-        <p className="text-sm font-medium tabular-nums text-neutral-600">{reservations.length}件表示</p>
+        <div className="flex items-center gap-3">
+          <a
+            href={`/api/reservations/csv${downloadParams.size ? `?${downloadParams}` : ""}`}
+            className="inline-flex min-h-10 items-center rounded-lg border border-neutral-300 bg-white px-4 text-sm font-medium text-neutral-800 hover:bg-neutral-50"
+          >
+            CSVダウンロード
+          </a>
+          <p className="text-sm font-medium tabular-nums text-neutral-600">{reservations.length}件表示</p>
+        </div>
       </div>
 
       <ReservationViewTabs active="list" />
