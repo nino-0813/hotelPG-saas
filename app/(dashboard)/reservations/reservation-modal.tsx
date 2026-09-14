@@ -25,7 +25,12 @@ import {
 import { cancelReservation } from "@/app/actions/cancelReservation";
 import { summarizeMultipleSyncResults } from "@/lib/ical/sync-summary";
 import { roomTypeLabel } from "@/lib/room-type-labels";
-import { reservationRevenue, withRevenueAmount } from "@/lib/revenue";
+import {
+  reservationBreakfastFee,
+  reservationMemo,
+  reservationRevenue,
+  withReservationAmounts,
+} from "@/lib/revenue";
 
 function reservationSourceLabel(s: string | null | undefined): string {
   if (!s) return "—";
@@ -150,7 +155,11 @@ function NewReservationForm({
         check_out_time: String(formData.get("check_out_time") || "11:00"),
         payment_method: String(formData.get("payment_method")) as PaymentMethod,
         smart_key_code: String(formData.get("smart_key_code") || ""),
-        special_notes: String(formData.get("special_notes") || ""),
+        special_notes: withReservationAmounts(
+          String(formData.get("special_notes") || ""),
+          Number(formData.get("revenue_amount")) || 0,
+          Number(formData.get("breakfast_fee")) || 0,
+        ),
         source: String(formData.get("source") || ""),
       });
       if (result.error) {
@@ -307,6 +316,37 @@ function NewReservationForm({
             placeholder="1234"
           />
         </Field>
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Field label="朝食料金（税込）">
+            <input
+              name="breakfast_fee"
+              type="number"
+              min={0}
+              step={1}
+              inputMode="numeric"
+              placeholder="例：2000"
+              className={inputCls}
+            />
+            <span className="mt-1 block text-xs text-neutral-500">
+              予約全体の朝食料金を入力します。
+            </span>
+          </Field>
+          <Field label="合計宿泊料金（税込）">
+            <input
+              name="revenue_amount"
+              type="number"
+              min={0}
+              step={1}
+              inputMode="numeric"
+              placeholder="例：18000"
+              className={inputCls}
+            />
+            <span className="mt-1 block text-xs text-neutral-500">
+              朝食料金を含む、予約の請求総額を入力します。
+            </span>
+          </Field>
+        </div>
 
         <Field label="特記事項">
           <textarea
@@ -653,10 +693,20 @@ function ReservationDetail({
           )}
         </Row>
         <Row label="スマートキー">{reservation.smart_key_code ?? "—"}</Row>
+        <Row label="朝食料金">
+          {reservationBreakfastFee(reservation) > 0
+            ? `${reservationBreakfastFee(reservation).toLocaleString("ja-JP")}円`
+            : "—"}
+        </Row>
+        <Row label="合計宿泊料金">
+          {reservationRevenue(reservation) > 0
+            ? `${reservationRevenue(reservation).toLocaleString("ja-JP")}円`
+            : "—"}
+        </Row>
         <Row label="特記事項">
-          {reservation.special_notes ? (
+          {reservationMemo(reservation) ? (
             <span className="whitespace-pre-wrap">
-              {reservation.special_notes}
+              {reservationMemo(reservation)}
             </span>
           ) : (
             "—"
@@ -850,9 +900,10 @@ function EditReservationForm({
           check_out_time: String(formData.get("check_out_time") || "11:00"),
           payment_method: String(formData.get("payment_method")) as PaymentMethod,
           smart_key_code: String(formData.get("smart_key_code") || ""),
-          special_notes: withRevenueAmount(
+          special_notes: withReservationAmounts(
             String(formData.get("special_notes") || ""),
             Number(formData.get("revenue_amount")) || 0,
+            Number(formData.get("breakfast_fee")) || 0,
           ),
           source: String(formData.get("source") || ""),
         });
@@ -999,26 +1050,41 @@ function EditReservationForm({
           />
         </Field>
 
-        <Field label="売上金額（税込）">
-          <input
-            name="revenue_amount"
-            type="number"
-            min={0}
-            step={1}
-            defaultValue={reservationRevenue(reservation) || ""}
-            placeholder="例：18000"
-            className={inputCls}
-          />
-          <span className="mt-1 block text-xs text-neutral-500">
-            Stripe以外の楽天・電話・現地予約も入力できます。
-          </span>
-        </Field>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Field label="朝食料金（税込）">
+            <input
+              name="breakfast_fee"
+              type="number"
+              min={0}
+              step={1}
+              inputMode="numeric"
+              defaultValue={reservationBreakfastFee(reservation) || ""}
+              placeholder="例：2000"
+              className={inputCls}
+            />
+          </Field>
+          <Field label="合計宿泊料金（税込）">
+            <input
+              name="revenue_amount"
+              type="number"
+              min={0}
+              step={1}
+              inputMode="numeric"
+              defaultValue={reservationRevenue(reservation) || ""}
+              placeholder="例：18000"
+              className={inputCls}
+            />
+          </Field>
+        </div>
+        <p className="-mt-2 text-xs text-neutral-500">
+          合計宿泊料金には朝食料金を含めて入力します。Stripe以外の予約も売上集計に反映されます。
+        </p>
 
         <Field label="特記事項">
           <textarea
             name="special_notes"
             rows={2}
-            defaultValue={reservation.special_notes ?? ""}
+            defaultValue={reservationMemo(reservation)}
             className={inputCls}
           />
         </Field>

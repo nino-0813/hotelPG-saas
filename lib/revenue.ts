@@ -23,7 +23,10 @@ function firstAmount(note: string, patterns: RegExp[]) {
 }
 
 export function reservationRevenue(row: Pick<Reservation, "special_notes">) {
-  const note = row.special_notes ?? "";
+  const note = (row.special_notes ?? "").replace(
+    /^朝食料金:\s*[¥￥]?\s*[0-9,]+円?\s*\n?/gm,
+    "",
+  );
   return firstAmount(note, [
     /売上金額:\s*[¥￥]?\s*([0-9,]+)円?/,
     /宿泊売上目標:\s*[¥￥]?\s*([0-9,]+)円?/,
@@ -33,13 +36,45 @@ export function reservationRevenue(row: Pick<Reservation, "special_notes">) {
   ]);
 }
 
-export function withRevenueAmount(note: string, amount: number) {
-  const cleaned = note
-    .replace(/^売上金額:\s*[¥￥]?\s*[0-9,]+円?\s*\n?/m, "")
+export function reservationBreakfastFee(
+  row: Pick<Reservation, "special_notes">,
+) {
+  return firstAmount(row.special_notes ?? "", [
+    /朝食料金:\s*[¥￥]?\s*([0-9,]+)円?/,
+  ]);
+}
+
+export function reservationMemo(row: Pick<Reservation, "special_notes">) {
+  return (row.special_notes ?? "")
+    .replace(/^売上金額:\s*[¥￥]?\s*[0-9,]+円?\s*\n?/gm, "")
+    .replace(/^朝食料金:\s*[¥￥]?\s*[0-9,]+円?\s*\n?/gm, "")
     .trim();
-  return amount > 0
-    ? `売上金額: ${Math.round(amount).toLocaleString("ja-JP")}円${cleaned ? `\n${cleaned}` : ""}`
-    : cleaned;
+}
+
+export function withReservationAmounts(
+  note: string,
+  totalAmount: number,
+  breakfastFee: number,
+) {
+  const cleaned = reservationMemo({ special_notes: note });
+  const amountLines = [
+    totalAmount > 0
+      ? `売上金額: ${Math.round(totalAmount).toLocaleString("ja-JP")}円`
+      : "",
+    breakfastFee > 0
+      ? `朝食料金: ${Math.round(breakfastFee).toLocaleString("ja-JP")}円`
+      : "",
+  ].filter(Boolean);
+
+  return [...amountLines, cleaned].filter(Boolean).join("\n");
+}
+
+export function withRevenueAmount(note: string, amount: number) {
+  return withReservationAmounts(
+    note,
+    amount,
+    reservationBreakfastFee({ special_notes: note }),
+  );
 }
 
 export function reservationTax(row: Pick<Reservation, "special_notes">) {
