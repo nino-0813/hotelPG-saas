@@ -24,10 +24,9 @@ export default async function ReservationListPage({ searchParams }: { searchPara
   if (staff?.role !== "admin") redirect("/rooms");
 
   const params = await searchParams;
-  const [{ data: properties }, { data: rooms }, { data: rawReservations }] = await Promise.all([
+  const [{ data: properties }, { data: rooms }] = await Promise.all([
     supabase.from("properties").select("*").order("display_order").returns<Property[]>(),
     supabase.from("rooms").select("*").order("display_order").returns<Room[]>(),
-    supabase.from("reservations").select("*").order("check_in_date", { ascending: false }).limit(1000).returns<Reservation[]>(),
   ]);
 
   const q = params.q?.trim().toLocaleLowerCase("ja") ?? "";
@@ -36,20 +35,41 @@ export default async function ReservationListPage({ searchParams }: { searchPara
   const source = params.source || "all";
   const roomById = new Map((rooms ?? []).map((room) => [room.id, room]));
 
+  let reservationsQuery = supabase
+    .from("reservations")
+    .select("*")
+    .order("check_in_date", { ascending: false })
+    .limit(1000);
+
+  if (status !== "all") reservationsQuery = reservationsQuery.eq("status", status);
+  if (source !== "all") {
+    reservationsQuery = source === "unknown"
+      ? reservationsQuery.is("source", null)
+      : reservationsQuery.eq("source", source);
+  }
+  if (params.from) reservationsQuery = reservationsQuery.gte("check_in_date", params.from);
+  if (params.to) reservationsQuery = reservationsQuery.lte("check_out_date", params.to);
+  if (property !== "all") {
+    const roomIds = (rooms ?? [])
+      .filter((room) => room.property_id === property)
+      .map((room) => room.id);
+    reservationsQuery = roomIds.length > 0
+      ? reservationsQuery.in("room_id", roomIds)
+      : reservationsQuery.eq("requested_property_id", property);
+  }
+
+  const { data: rawReservations } = await reservationsQuery.returns<Reservation[]>();
+
   const reservations = (rawReservations ?? []).filter((reservation) => {
     const room = reservation.room_id ? roomById.get(reservation.room_id) : undefined;
-    const propertyId = room?.property_id ?? reservation.requested_property_id;
-    if (status !== "all" && reservation.status !== status) return false;
-    if (property !== "all" && propertyId !== property) return false;
-    if (source !== "all" && (reservation.source || "unknown") !== source) return false;
-    if (params.from && reservation.check_out_date < params.from) return false;
-    if (params.to && reservation.check_in_date > params.to) return false;
     if (!q) return true;
     return [reservation.guest_name, reservation.guest_phone, reservation.guest_email, reservation.smart_key_code, reservation.source, room?.room_number]
       .some((value) => value?.toLocaleLowerCase("ja").includes(q));
   });
 
-  const sourceOptions = Array.from(new Set((rawReservations ?? []).map((row) => row.source || "unknown"))).sort();
+  const { data: allSources } = await supabase.from("reservations").select("source");
+  const sourceOptions = Array.from(new Set((allSources ?? []).map((row) => row.source || "unknown"))).sort();
+  const hasFilters = Boolean(q || status !== "all" || property !== "all" || source !== "all" || params.from || params.to);
 
   return (
     <main className="mx-auto w-full max-w-[1500px] px-4 py-4 sm:px-6 sm:py-6">
@@ -76,6 +96,13 @@ export default async function ReservationListPage({ searchParams }: { searchPara
           <div className="flex items-end gap-2 md:col-span-2 xl:col-span-1"><button className="min-h-11 flex-1 rounded-lg bg-neutral-900 px-5 text-sm font-semibold text-white hover:bg-neutral-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-900">検索</button><a href="/reservations/list" className="flex min-h-11 items-center rounded-lg border border-neutral-300 px-4 text-sm font-medium text-neutral-700 hover:bg-neutral-50">クリア</a></div>
         </div>
       </form>
+
+      {hasFilters ? (
+        <div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm text-blue-900">
+          <p><span className="font-semibold">絞り込み中:</span> 条件に一致する{reservations.length}件のみを表示しています。</p>
+          <a href="/reservations/list" className="shrink-0 font-medium underline underline-offset-2">解除</a>
+        </div>
+      ) : null}
 
       <ReservationList reservations={reservations} properties={properties ?? []} rooms={rooms ?? []} />
     </main>
