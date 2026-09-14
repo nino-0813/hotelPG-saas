@@ -76,6 +76,52 @@ export async function updateReservation(input: UpdateReservationInput) {
   const supabase = await createClient();
   const { id, ...rest } = input;
 
+  const { data: current, error: fetchError } = await supabase
+    .from("reservations")
+    .select("id, room_id, check_in_date, check_out_date, status")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (fetchError) return { error: `予約の読み込みに失敗しました: ${fetchError.message}` };
+  if (!current) return { error: "予約が見つかりません。画面を更新してやり直してください。" };
+
+  const guestName = input.guest_name?.trim();
+  if (input.guest_name !== undefined && !guestName) {
+    return { error: "ゲスト名を入力してください。" };
+  }
+  if (input.guest_count !== undefined && input.guest_count < 1) {
+    return { error: "人数は1名以上で入力してください。" };
+  }
+
+  const nextRoomId = input.room_id ?? current.room_id;
+  const nextCheckIn = input.check_in_date ?? current.check_in_date;
+  const nextCheckOut = input.check_out_date ?? current.check_out_date;
+
+  if (nextCheckOut <= nextCheckIn) {
+    return { error: "チェックアウト日はチェックイン日より後にしてください。" };
+  }
+
+  if (nextRoomId && current.status !== "cancelled") {
+    const { data: overlaps, error: overlapError } = await supabase
+      .from("reservations")
+      .select("id, guest_name")
+      .eq("room_id", nextRoomId)
+      .neq("status", "cancelled")
+      .neq("id", id)
+      .lt("check_in_date", nextCheckOut)
+      .gt("check_out_date", nextCheckIn)
+      .limit(1);
+
+    if (overlapError) {
+      return { error: `空室確認に失敗しました: ${overlapError.message}` };
+    }
+    if (overlaps && overlaps.length > 0) {
+      return {
+        error: `選択した部屋と日程に重なる予約があります（${overlaps[0].guest_name ?? "他予約"}）。部屋または日程を変更してください。`,
+      };
+    }
+  }
+
   const payload: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(rest)) {
     if (v === undefined) continue;
@@ -86,14 +132,34 @@ export async function updateReservation(input: UpdateReservationInput) {
     }
   }
 
-  const { error } = await supabase
+  const { data: updated, error } = await supabase
     .from("reservations")
     .update(payload)
-    .eq("id", id);
+    .eq("id", id)
+    .select("id")
+    .maybeSingle();
 
-  if (error) return { error: error.message };
+  if (error) {
+    if (error.code === "23P01" || /no_overlap|overlap/i.test(error.message)) {
+      return {
+        error: "保存中に他の予約が入り、日程が重なりました。画面を更新し、別の部屋または日程を選んでください。",
+      };
+    }
+    console.error("[updateReservation] update failed", {
+      reservationId: id,
+      code: error.code,
+      message: error.message,
+    });
+    return { error: `保存に失敗しました: ${error.message}` };
+  }
+  if (!updated) {
+    return { error: "保存できませんでした。権限または予約の状態を確認してください。" };
+  }
 
   revalidatePath("/reservations");
+  revalidatePath("/reservations/list");
+  revalidatePath("/customers");
+  revalidatePath("/reports");
   revalidatePath("/tasks");
   revalidatePath("/rooms");
   return { ok: true };

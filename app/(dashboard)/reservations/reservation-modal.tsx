@@ -19,7 +19,6 @@ import {
   getCheckInEmailDraft,
   getReservationConfirmedEmailDraft,
   syncExternalCalendars,
-  moveReservationRoom,
   updateReservation,
   type GuestEmailDraft,
 } from "./actions";
@@ -828,38 +827,41 @@ function EditReservationForm({
   const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = (formData: FormData) => {
+    const checkInDate = String(formData.get("check_in_date"));
+    const checkOutDate = String(formData.get("check_out_date"));
+    if (checkOutDate <= checkInDate) {
+      setError("チェックアウト日はチェックイン日より後にしてください。");
+      return;
+    }
+
     startTransition(async () => {
       setError(null);
-      const nextRoomId = String(formData.get("room_id") || "");
-      if (nextRoomId && nextRoomId !== reservation.room_id) {
-        const moveResult = await moveReservationRoom({
+      try {
+        const nextRoomId = String(formData.get("room_id") || "");
+        const result = await updateReservation({
           id: reservation.id,
           room_id: nextRoomId,
+          guest_name: String(formData.get("guest_name")),
+          guest_phone: String(formData.get("guest_phone") || ""),
+          guest_count: Number(formData.get("guest_count")) || 1,
+          check_in_date: checkInDate,
+          check_in_time: String(formData.get("check_in_time") || "15:00"),
+          check_out_date: checkOutDate,
+          check_out_time: String(formData.get("check_out_time") || "11:00"),
+          payment_method: String(formData.get("payment_method")) as PaymentMethod,
+          smart_key_code: String(formData.get("smart_key_code") || ""),
+          special_notes: withRevenueAmount(
+            String(formData.get("special_notes") || ""),
+            Number(formData.get("revenue_amount")) || 0,
+          ),
+          source: String(formData.get("source") || ""),
         });
-        if (moveResult.error) {
-          setError(moveResult.error);
-          return;
-        }
+        if (result.error) setError(result.error);
+        else onSaved();
+      } catch (submitError) {
+        console.error("[EditReservationForm] submit failed", submitError);
+        setError("通信に失敗しました。接続を確認して、もう一度保存してください。");
       }
-      const result = await updateReservation({
-        id: reservation.id,
-        guest_name: String(formData.get("guest_name")),
-        guest_phone: String(formData.get("guest_phone") || ""),
-        guest_count: Number(formData.get("guest_count")) || 1,
-        check_in_date: String(formData.get("check_in_date")),
-        check_in_time: String(formData.get("check_in_time") || "15:00"),
-        check_out_date: String(formData.get("check_out_date")),
-        check_out_time: String(formData.get("check_out_time") || "11:00"),
-        payment_method: String(formData.get("payment_method")) as PaymentMethod,
-        smart_key_code: String(formData.get("smart_key_code") || ""),
-        special_notes: withRevenueAmount(
-          String(formData.get("special_notes") || ""),
-          Number(formData.get("revenue_amount")) || 0,
-        ),
-        source: String(formData.get("source") || ""),
-      });
-      if (result.error) setError(result.error);
-      else onSaved();
     });
   };
 
@@ -1032,14 +1034,18 @@ function EditReservationForm({
           </select>
         </Field>
 
-        {error ? (
-          <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
-            {error}
-          </p>
-        ) : null}
       </div>
 
       <ModalFooter>
+        {error ? (
+          <p
+            role="alert"
+            aria-live="assertive"
+            className="w-full rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800"
+          >
+            {error}
+          </p>
+        ) : null}
         <button type="button" onClick={onCancel} className={btnSecondary}>
           戻る
         </button>
