@@ -227,11 +227,7 @@ export function NewReservationForm({
             className={inputCls}
           >
             <option value="" disabled>部屋を選択</option>
-            {rooms.map((candidate) => (
-              <option key={candidate.id} value={candidate.id}>
-                {properties.find((item) => item.id === candidate.property_id)?.name ?? "施設"} / {candidate.room_number}（{roomTypeLabel(candidate.room_type)}）
-              </option>
-            ))}
+            <RoomOptions rooms={rooms} properties={properties} />
           </select>
         </Field>
         <Field label="ゲスト名" required>
@@ -961,11 +957,7 @@ function EditReservationForm({
             className={inputCls}
           >
             <option value="" disabled>部屋を選択</option>
-            {rooms.map((candidate) => (
-              <option key={candidate.id} value={candidate.id}>
-                {properties.find((item) => item.id === candidate.property_id)?.name ?? "施設"} / {candidate.room_number}（{roomTypeLabel(candidate.room_type)}）
-              </option>
-            ))}
+            <RoomOptions rooms={rooms} properties={properties} />
           </select>
           <span className="mt-1 block text-xs text-neutral-500">
             スマートフォンではここから部屋を変更できます。
@@ -1176,6 +1168,47 @@ function ModalFooter({ children }: { children: React.ReactNode }) {
     <div className="sticky bottom-0 flex flex-wrap items-center justify-end gap-2 border-t border-neutral-200 bg-neutral-50 px-4 py-3 sm:px-6">
       {children}
     </div>
+  );
+}
+
+function RoomOptions({ rooms, properties }: { rooms: Room[]; properties: Property[] }) {
+  const sortedProperties = [...properties].sort(
+    (a, b) => a.display_order - b.display_order || a.name.localeCompare(b.name, "ja"),
+  );
+  const knownPropertyIds = new Set(sortedProperties.map((item) => item.id));
+  const ungroupedRooms = rooms.filter((candidate) => !knownPropertyIds.has(candidate.property_id));
+
+  const renderRoom = (candidate: Room) => (
+    <option key={candidate.id} value={candidate.id}>
+      {candidate.room_number}号室 — {roomTypeLabel(candidate.room_type)}
+    </option>
+  );
+
+  return (
+    <>
+      {sortedProperties.map((hotel) => {
+        const hotelRooms = rooms
+          .filter((candidate) => candidate.property_id === hotel.id)
+          .sort(
+            (a, b) =>
+              a.display_order - b.display_order ||
+              a.room_number.localeCompare(b.room_number, "ja", { numeric: true }),
+          );
+        if (hotelRooms.length === 0) return null;
+        return (
+          <optgroup key={hotel.id} label={`── ${hotel.name} ──`}>
+            {hotelRooms.map(renderRoom)}
+          </optgroup>
+        );
+      })}
+      {ungroupedRooms.length > 0 ? (
+        <optgroup label="── その他の施設 ──">
+          {ungroupedRooms
+            .sort((a, b) => a.room_number.localeCompare(b.room_number, "ja", { numeric: true }))
+            .map(renderRoom)}
+        </optgroup>
+      ) : null}
+    </>
   );
 }
 
