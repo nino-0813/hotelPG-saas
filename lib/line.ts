@@ -65,3 +65,25 @@ export function formatStripeWebReservationLineMessage(args: {
   ];
   return lines.join("\n");
 }
+
+export function formatGuestCancellationLineMessage(args: {
+  guestName: string;
+  guestEmail: string | null;
+  guestCount: number;
+  checkInDate: string;
+  checkOutDate: string;
+  reservationId: string;
+}): string {
+  return [
+    "【HOTEL PG】お客様が予約をキャンセルしました",
+    "",
+    `お名前: ${args.guestName || "(未入力)"}`,
+    `メール: ${args.guestEmail || "—"}`,
+    `人数: ${args.guestCount}名`,
+    `チェックイン: ${args.checkInDate}`,
+    `チェックアウト: ${args.checkOutDate}`,
+    "",
+    `予約ID: ${args.reservationId}`,
+    "※Stripeの返金が必要な場合は別途対応してください。",
+  ].join("\n");
+}
