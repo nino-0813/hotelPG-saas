@@ -29,6 +29,8 @@ export async function GET(request: NextRequest) {
   if (source !== "all") query = source === "unknown" ? query.is("source", null) : query.eq("source", source);
   if (params.get("from")) query = query.gte("check_in_date", params.get("from")!);
   if (params.get("to")) query = query.lte("check_out_date", params.get("to")!);
+  if (params.get("importedFrom")) query = query.gte("created_at", `${params.get("importedFrom")}T00:00:00+09:00`);
+  if (params.get("importedTo")) query = query.lte("created_at", `${params.get("importedTo")}T23:59:59.999+09:00`);
   const { data } = await query.returns<Reservation[]>();
 
   const roomById = new Map((rooms ?? []).map((room) => [room.id, room]));

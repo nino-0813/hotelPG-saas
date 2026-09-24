@@ -276,6 +276,21 @@ export async function GET(req: NextRequest) {
 
     const rooms = (roomsRaw ?? []) as PublicRoomRow[];
     const roomIds = rooms.map((r) => r.id);
+    const { data: blockedRows } = roomIds.length
+      ? await supabase
+          .from("room_blocks")
+          .select("room_id,start_date,end_date")
+          .eq("is_active", true)
+          .in("room_id", roomIds)
+          .lte("start_date", lastDateStr)
+          .gte("end_date", start)
+      : {
+          data: [] as {
+            room_id: string;
+            start_date: string;
+            end_date: string;
+          }[],
+        };
 
     const hasRoomOrPropertyFilter =
       resolvedPropertyId !== null || roomTypeParam !== null;
@@ -384,7 +399,8 @@ export async function GET(req: NextRequest) {
       listPriceForDateFn != null ||
       availabilityCap != null ||
       (availabilityCapForDate != null && rateCode && catalogRateRoomType) ||
-      (rateCode && catalogRateRoomType)
+      (rateCode && catalogRateRoomType) ||
+      (blockedRows?.length ?? 0) > 0
         ? {
             ...(listPriceForDateFn
               ? { listPriceForDate: listPriceForDateFn }
@@ -398,6 +414,15 @@ export async function GET(req: NextRequest) {
             ...(rateCode && catalogRateRoomType
               ? { includeStripeWebCheckoutEstimate: true as const }
               : {}),
+            blockedRoomIdsForDate: (dateYmd: string) =>
+              new Set(
+                (blockedRows ?? [])
+                  .filter(
+                    (row) =>
+                      row.start_date <= dateYmd && row.end_date >= dateYmd,
+                  )
+                  .map((row) => row.room_id),
+              ),
             ...(process.env.NODE_ENV === "development"
               ? {
                   debug: {

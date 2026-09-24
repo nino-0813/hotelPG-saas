@@ -1,7 +1,7 @@
 import { addDays, differenceInCalendarDays, format, parseISO } from "date-fns";
 import { redirect } from "next/navigation";
 import { getCachedSupabaseAuth } from "@/lib/supabase/server";
-import type { Property, Reservation, Room } from "@/lib/types/database";
+import type { Property, Reservation, Room, RoomBlock } from "@/lib/types/database";
 import { reservationRevenue, reservationTax, sourceLabel } from "@/lib/revenue";
 
 type SearchParams = Promise<{ start?: string; end?: string; property?: string }>;
@@ -9,12 +9,28 @@ type ReportReservation = Pick<Reservation, "id" | "room_id" | "requested_propert
 
 const yen = new Intl.NumberFormat("ja-JP", { style: "currency", currency: "JPY", maximumFractionDigits: 0 });
 
-function overlapNights(row: ReportReservation, start: Date, endExclusive: Date) {
-  const arrival = parseISO(row.check_in_date);
-  const departure = parseISO(row.check_out_date);
-  const from = arrival > start ? arrival : start;
-  const to = departure < endExclusive ? departure : endExclusive;
-  return Math.max(0, differenceInCalendarDays(to, from));
+function isBlocked(roomId: string, date: Date, blocks: RoomBlock[]) {
+  const ymd = format(date, "yyyy-MM-dd");
+  return blocks.some((block) => block.room_id === roomId && block.is_active && block.start_date <= ymd && block.end_date >= ymd);
+}
+
+function availableNights(rooms: Room[], start: Date, days: number, blocks: RoomBlock[]) {
+  let total = 0;
+  for (let offset = 0; offset < days; offset++) {
+    const date = addDays(start, offset);
+    total += rooms.filter((room) => !isBlocked(room.id, date, blocks)).length;
+  }
+  return total;
+}
+
+function soldNights(row: ReportReservation, start: Date, endExclusive: Date, blocks: RoomBlock[]) {
+  const arrival = parseISO(row.check_in_date) > start ? parseISO(row.check_in_date) : start;
+  const departure = parseISO(row.check_out_date) < endExclusive ? parseISO(row.check_out_date) : endExclusive;
+  let total = 0;
+  for (let date = arrival; date < departure; date = addDays(date, 1)) {
+    if (!row.room_id || !isBlocked(row.room_id, date, blocks)) total++;
+  }
+  return total;
 }
 
 export default async function ReportsPage({ searchParams }: { searchParams: SearchParams }) {
@@ -32,12 +48,13 @@ export default async function ReportsPage({ searchParams }: { searchParams: Sear
   const endExclusive = addDays(end, 1);
   const days = Math.max(1, differenceInCalendarDays(endExclusive, start));
 
-  const [{ data: properties }, { data: rooms }, { data: reservations }] = await Promise.all([
+  const [{ data: properties }, { data: rooms }, { data: reservations }, { data: roomBlocks }] = await Promise.all([
     supabase.from("properties").select("*").order("display_order").returns<Property[]>(),
     supabase.from("rooms").select("*").order("display_order").returns<Room[]>(),
     supabase.from("reservations").select("id, room_id, requested_property_id, check_in_date, check_out_date, status, source, payment_method, special_notes")
       .neq("status", "cancelled").neq("status", "blocked").lt("check_in_date", format(endExclusive, "yyyy-MM-dd"))
       .gt("check_out_date", format(start, "yyyy-MM-dd")).returns<ReportReservation[]>(),
+    supabase.from("room_blocks").select("*").eq("is_active", true).lte("start_date", format(end, "yyyy-MM-dd")).gte("end_date", format(start, "yyyy-MM-dd")).returns<RoomBlock[]>(),
   ]);
 
   const allProperties = properties ?? [];
@@ -49,8 +66,9 @@ export default async function ReportsPage({ searchParams }: { searchParams: Sear
     return selectedProperty === "all" || propertyId === selectedProperty;
   });
 
-  const soldRoomNights = scopedReservations.reduce((sum, row) => sum + overlapNights(row, start, endExclusive), 0);
-  const availableRoomNights = scopedRooms.length * days;
+  const activeBlocks = roomBlocks ?? [];
+  const soldRoomNights = scopedReservations.reduce((sum, row) => sum + soldNights(row, start, endExclusive, activeBlocks), 0);
+  const availableRoomNights = availableNights(scopedRooms, start, days, activeBlocks);
   const occupancy = availableRoomNights ? Math.min(100, soldRoomNights / availableRoomNights * 100) : 0;
   const totalSales = scopedReservations.reduce((sum, row) => sum + reservationRevenue(row), 0);
   const taxTotal = scopedReservations.reduce((sum, row) => sum + reservationTax(row).total, 0);
@@ -60,8 +78,8 @@ export default async function ReportsPage({ searchParams }: { searchParams: Sear
     const propertyRooms = scopedRooms.filter((room) => room.property_id === property.id);
     const ids = new Set(propertyRooms.map((room) => room.id));
     const rows = scopedReservations.filter((row) => (row.room_id && ids.has(row.room_id)) || row.requested_property_id === property.id);
-    const sold = rows.reduce((sum, row) => sum + overlapNights(row, start, endExclusive), 0);
-    const capacity = propertyRooms.length * days;
+    const sold = rows.reduce((sum, row) => sum + soldNights(row, start, endExclusive, activeBlocks), 0);
+    const capacity = availableNights(propertyRooms, start, days, activeBlocks);
     return { property, bookings: rows.length, sold, capacity, rate: capacity ? Math.min(100, sold / capacity * 100) : 0 };
   });
 

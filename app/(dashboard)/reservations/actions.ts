@@ -27,6 +27,9 @@ export type CreateReservationInput = {
 export async function createReservation(input: CreateReservationInput) {
   const supabase = await createClient();
 
+  const { data: blocked } = await supabase.from("room_blocks").select("id").eq("room_id", input.room_id).eq("is_active", true).lt("start_date", input.check_out_date).gte("end_date", input.check_in_date).limit(1);
+  if (blocked?.length) return { error: "選択した部屋はこの期間、緊急用としてブロックされています。" };
+
   const payload = {
     room_id: input.room_id,
     guest_name: input.guest_name.trim(),
@@ -102,6 +105,8 @@ export async function updateReservation(input: UpdateReservationInput) {
   }
 
   if (nextRoomId && current.status !== "cancelled") {
+    const { data: blocked } = await supabase.from("room_blocks").select("id").eq("room_id", nextRoomId).eq("is_active", true).lt("start_date", nextCheckOut).gte("end_date", nextCheckIn).limit(1);
+    if (blocked?.length) return { error: "選択した部屋はこの期間、緊急用としてブロックされています。" };
     const { data: overlaps, error: overlapError } = await supabase
       .from("reservations")
       .select("id, guest_name")
@@ -187,6 +192,9 @@ export async function moveReservationRoom(input: {
   if (r.room_id === input.room_id) {
     return { ok: true as const };
   }
+
+  const { data: blocked } = await supabase.from("room_blocks").select("id").eq("room_id", input.room_id).eq("is_active", true).lt("start_date", r.check_out_date).gte("end_date", r.check_in_date).limit(1);
+  if (blocked?.length) return { error: "移動先の部屋はこの期間、緊急用としてブロックされています。" };
 
   const { data: overlaps, error: overlapErr } = await supabase
     .from("reservations")
@@ -492,7 +500,7 @@ async function buildReservationConfirmedEmailDraft(
   const { data: r, error } = await supabase
     .from("reservations")
     .select(
-      "id, guest_name, guest_email, guest_count, check_in_date, check_out_date, payment_method, requested_room_type, rooms(room_number, room_type, properties(code))",
+      "id, guest_name, guest_email, guest_count, check_in_date, check_out_date, payment_method, requested_room_type, guest_cancellation_token, rooms(room_number, room_type, properties(code))",
     )
     .eq("id", reservationId)
     .single();

@@ -724,6 +724,13 @@ function ReservationDetail({
           )}
         </Row>
         <Row label="予約元">{reservationSourceLabel(reservation.source)}</Row>
+        {reservation.guest_cancellation_token ? (
+          <Row label="宿泊者キャンセルURL">
+            <a className="break-all text-blue-700 underline" href={`/reservation/cancel?token=${reservation.guest_cancellation_token}`} target="_blank" rel="noreferrer">
+              専用ページを開く
+            </a>
+          </Row>
+        ) : null}
 
         <div className="rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2.5 text-xs text-neutral-800">
           <div className="font-semibold text-neutral-900">メール送信状況</div>

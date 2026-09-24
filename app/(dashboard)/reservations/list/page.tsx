@@ -11,6 +11,8 @@ type SearchParams = Promise<{
   source?: string;
   from?: string;
   to?: string;
+  importedFrom?: string;
+  importedTo?: string;
 }>;
 
 const VALID_STATUSES = new Set<ReservationStatus>([
@@ -49,6 +51,8 @@ export default async function ReservationListPage({ searchParams }: { searchPara
   }
   if (params.from) reservationsQuery = reservationsQuery.gte("check_in_date", params.from);
   if (params.to) reservationsQuery = reservationsQuery.lte("check_out_date", params.to);
+  if (params.importedFrom) reservationsQuery = reservationsQuery.gte("created_at", `${params.importedFrom}T00:00:00+09:00`);
+  if (params.importedTo) reservationsQuery = reservationsQuery.lte("created_at", `${params.importedTo}T23:59:59.999+09:00`);
   if (property !== "all") {
     const roomIds = (rooms ?? [])
       .filter((room) => room.property_id === property)
@@ -69,7 +73,7 @@ export default async function ReservationListPage({ searchParams }: { searchPara
 
   const { data: allSources } = await supabase.from("reservations").select("source");
   const sourceOptions = Array.from(new Set((allSources ?? []).map((row) => row.source || "unknown"))).sort();
-  const hasFilters = Boolean(q || status !== "all" || property !== "all" || source !== "all" || params.from || params.to);
+  const hasFilters = Boolean(q || status !== "all" || property !== "all" || source !== "all" || params.from || params.to || params.importedFrom || params.importedTo);
   const downloadParams = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (typeof value === "string" && value) downloadParams.set(key, value);
@@ -106,6 +110,15 @@ export default async function ReservationListPage({ searchParams }: { searchPara
           <DateField label="宿泊開始" name="from" value={params.from} />
           <DateField label="宿泊終了" name="to" value={params.to} />
           <div className="flex items-end gap-2 md:col-span-2 xl:col-span-1"><button className="min-h-11 flex-1 rounded-lg bg-neutral-900 px-5 text-sm font-semibold text-white hover:bg-neutral-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-900">検索</button><a href="/reservations/list" className="flex min-h-11 items-center rounded-lg border border-neutral-300 px-4 text-sm font-medium text-neutral-700 hover:bg-neutral-50">クリア</a></div>
+        </div>
+      </form>
+
+      <form className="mt-3 rounded-xl border border-neutral-200 bg-white p-4 shadow-sm" aria-label="予約取込日時の検索">
+        {Object.entries(params).filter(([key]) => key !== "importedFrom" && key !== "importedTo").map(([key, value]) => typeof value === "string" ? <input key={key} type="hidden" name={key} value={value} /> : null)}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+          <DateField label="取込日（開始）" name="importedFrom" value={params.importedFrom} />
+          <DateField label="取込日（終了）" name="importedTo" value={params.importedTo} />
+          <button className="min-h-11 rounded-lg bg-neutral-900 px-5 text-sm font-semibold text-white hover:bg-neutral-700">取込日で検索</button>
         </div>
       </form>
 

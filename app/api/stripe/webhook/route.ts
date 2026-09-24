@@ -222,7 +222,7 @@ export async function POST(req: NextRequest) {
     const { data: r, error: rErr } = await supabase
       .from("reservations")
       .select(
-        "guest_name, guest_email, guest_count, check_in_date, check_out_date, payment_method, requested_room_type, rooms(room_number, room_type, properties(code))",
+        "guest_name, guest_email, guest_count, check_in_date, check_out_date, payment_method, requested_room_type, guest_cancellation_token, rooms(room_number, room_type, properties(code))",
       )
       .eq("id", created.reservationId)
       .single();

@@ -1,7 +1,7 @@
 import { addDays, format } from "date-fns";
 import { redirect } from "next/navigation";
 import { getCachedSupabaseAuth } from "@/lib/supabase/server";
-import type { Property, Room } from "@/lib/types/database";
+import type { Property, Room, RoomBlock } from "@/lib/types/database";
 import {
   computeRakutenInventoryByDate,
   type RakutenInventoryReservationRow,
@@ -34,7 +34,7 @@ export default async function RakutenInventoryPage({
   const startStr = format(startDate, "yyyy-MM-dd");
   const endStr = format(endDate, "yyyy-MM-dd");
 
-  const [{ data: properties }, { data: rooms }, { data: reservations }] =
+  const [{ data: properties }, { data: rooms }, { data: reservations }, { data: roomBlocks }] =
     await Promise.all([
       supabase
         .from("properties")
@@ -56,6 +56,7 @@ export default async function RakutenInventoryPage({
         .lt("check_in_date", endStr)
         .gte("check_out_date", startStr)
         .returns<RakutenInventoryReservationRow[]>(),
+      supabase.from("room_blocks").select("room_id,start_date,end_date,is_active").eq("is_active", true).lte("start_date", endStr).gte("end_date", startStr).returns<RoomBlock[]>(),
     ]);
 
   const inventory = computeRakutenInventoryByDate(
@@ -67,6 +68,7 @@ export default async function RakutenInventoryPage({
       room_type: r.room_type,
     })),
     reservations ?? [],
+    roomBlocks ?? [],
   );
 
   return (

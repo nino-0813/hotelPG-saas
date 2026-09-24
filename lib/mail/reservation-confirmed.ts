@@ -94,6 +94,7 @@ export function buildReservationConfirmedBody(args: {
   guestCount: number;
   roomTypeLine: string;
   paymentLine: string;
+  cancellationUrl?: string | null;
 }): string {
   return [
     `${args.guestName} 様`,
@@ -116,6 +117,7 @@ export function buildReservationConfirmedBody(args: {
     "そのため、事前にお送りするチェックイン案内をご確認のうえ、セルフチェックインをお願いいたします。",
     "",
     "ご予約内容の変更やご不明点がございましたら、お早めにご連絡ください。",
+    ...(args.cancellationUrl ? ["予約のキャンセル：", args.cancellationUrl, ""] : []),
     "070-8328-9154",
     "",
     "因島でのご滞在を、心よりお待ちしております。",
@@ -133,6 +135,7 @@ export type ReservationConfirmedEmailRow = {
   payment_method: string | null;
   requested_room_type: RoomType | null;
   rooms?: unknown;
+  guest_cancellation_token?: string | null;
 };
 
 /**
@@ -153,6 +156,9 @@ export function buildReservationConfirmedEmail(
     guestCount: r.guest_count,
     roomTypeLine: roomTypeLineFromReservationRow(r),
     paymentLine: reservationConfirmedPaymentLine(r.payment_method),
+    cancellationUrl: r.guest_cancellation_token
+      ? `${process.env.NEXT_PUBLIC_APP_URL ?? "https://hotel-pg-saas.vercel.app"}/reservation/cancel?token=${r.guest_cancellation_token}`
+      : null,
   });
   return { to: r.guest_email, subject: RESERVATION_CONFIRMED_SUBJECT, body };
 }

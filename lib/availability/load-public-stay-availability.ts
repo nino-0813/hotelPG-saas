@@ -83,7 +83,11 @@ export async function loadPublicStayAvailability(params: {
 
   const { data: roomsRaw, error: roomsErr } = await roomsQ.returns<PublicRoomRow[]>();
   if (roomsErr) throw new Error("Failed to load rooms");
-  const rooms = roomsRaw ?? [];
+  const rawRooms = roomsRaw ?? [];
+  const { data: blockedRows } = rawRooms.length
+    ? await supabase.from("room_blocks").select("room_id,start_date,end_date").eq("is_active", true).in("room_id", rawRooms.map((room) => room.id)).lt("start_date", checkOutDate).gte("end_date", checkInDate)
+    : { data: [] as { room_id: string; start_date: string; end_date: string }[] };
+  const rooms = rawRooms;
   const roomIds = rooms.map((r) => r.id);
 
   const lastNight = format(
@@ -166,6 +170,7 @@ export async function loadPublicStayAvailability(params: {
       ...(listPriceForDate ? { listPriceForDate } : {}),
       ...(availabilityCap != null ? { availabilityCap } : {}),
       availabilityCapForDate,
+      blockedRoomIdsForDate: (dateYmd) => new Set((blockedRows ?? []).filter((row) => row.start_date <= dateYmd && row.end_date >= dateYmd).map((row) => row.room_id)),
     },
   );
 

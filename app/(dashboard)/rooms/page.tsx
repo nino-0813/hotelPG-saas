@@ -5,9 +5,11 @@ import type {
   Reservation,
   Room,
   RoomStatusRow,
+  RoomBlock,
   Task,
 } from "@/lib/types/database";
 import { RoomStatusBoard } from "./room-status-board";
+import { RoomBlockManager } from "./room-block-manager";
 
 export default async function RoomsPage() {
   const supabase = await createClient();
@@ -21,6 +23,7 @@ export default async function RoomsPage() {
     { data: currentReservations },
     { data: upcomingReservations },
     { data: openTasks },
+    { data: roomBlocks },
   ] = await Promise.all([
     supabase
       .from("properties")
@@ -55,6 +58,7 @@ export default async function RoomsPage() {
       .select("*")
       .in("status", ["todo", "in_progress"])
       .returns<Task[]>(),
+    supabase.from("room_blocks").select("*").eq("is_active", true).gte("end_date", today).order("start_date").returns<RoomBlock[]>(),
   ]);
 
   return (
@@ -65,6 +69,8 @@ export default async function RoomsPage() {
           現在の各部屋の状態と滞在中・到着予定のゲスト
         </p>
       </div>
+
+      <RoomBlockManager properties={properties ?? []} rooms={rooms ?? []} blocks={roomBlocks ?? []} />
 
       <RoomStatusBoard
         properties={properties ?? []}

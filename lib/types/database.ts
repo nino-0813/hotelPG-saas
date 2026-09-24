@@ -77,6 +77,19 @@ export type Reservation = {
   guest_mail_reservation_confirmed_sent_at?: string | null;
   created_at: string;
   updated_at: string;
+  guest_cancellation_token?: string;
+  guest_cancelled_at?: string | null;
+};
+
+export type RoomBlock = {
+  id: string;
+  room_id: string;
+  start_date: string;
+  end_date: string;
+  reason: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
 };
 
 export type ExternalCalendarSource = "rakuten_oyado" | "booking_com" | "airbnb";

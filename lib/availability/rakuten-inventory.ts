@@ -33,6 +33,8 @@ export type RakutenInventoryReservationRow = {
   status: string;
 };
 
+export type RakutenInventoryRoomBlockRow = { room_id: string; start_date: string; end_date: string; is_active: boolean };
+
 export type RakutenInventoryCell = {
   date: string;
   /** 楽天へ入れるべき在庫数（= 物理部屋数 − 予約数, 下限0） */
@@ -65,6 +67,7 @@ export function computeRakutenInventoryByDate(
   days: number,
   rooms: RakutenInventoryRoomRow[],
   reservations: RakutenInventoryReservationRow[],
+  roomBlocks: RakutenInventoryRoomBlockRow[] = [],
 ): RakutenInventoryResult {
   const start = parseISO(`${startDate}T00:00:00`);
   const dates: string[] = [];
@@ -75,10 +78,12 @@ export function computeRakutenInventoryByDate(
   // (property_id|room_type) -> 物理部屋数 / 部屋ID集合
   const totalByKey = new Map<string, number>();
   const roomIdToKey = new Map<string, string>();
+  const roomIdsByKey = new Map<string, string[]>();
   for (const r of rooms) {
     const key = `${r.property_id}|${r.room_type}`;
     totalByKey.set(key, (totalByKey.get(key) ?? 0) + 1);
     roomIdToKey.set(r.id, key);
+    roomIdsByKey.set(key, [...(roomIdsByKey.get(key) ?? []), r.id]);
   }
 
   const active = reservations.filter((res) =>
@@ -92,6 +97,8 @@ export function computeRakutenInventoryByDate(
     const roomType = key.slice(pipe + 1);
 
     const cells: RakutenInventoryCell[] = dates.map((d) => {
+      const blockedIds = new Set(roomBlocks.filter((block) => block.is_active && block.start_date <= d && block.end_date >= d).map((block) => block.room_id));
+      const operationalTotal = (roomIdsByKey.get(key) ?? []).filter((id) => !blockedIds.has(id)).length;
       // 割当済み：その部屋タイプの物理部屋が塞がっている数（部屋ID単位で重複排除）
       const occupiedRoomIds = new Set<string>();
       // 未割当：requested_property_id + requested_room_type が一致するもの
@@ -100,7 +107,7 @@ export function computeRakutenInventoryByDate(
       for (const res of active) {
         if (!dateInStayRange(d, res.check_in_date, res.check_out_date)) continue;
         if (res.room_id) {
-          if (roomIdToKey.get(res.room_id) === key) {
+          if (roomIdToKey.get(res.room_id) === key && !blockedIds.has(res.room_id)) {
             occupiedRoomIds.add(res.room_id);
           }
           continue;
@@ -114,8 +121,8 @@ export function computeRakutenInventoryByDate(
       }
 
       const booked = occupiedRoomIds.size + unassigned;
-      const sellable = Math.max(0, totalRooms - booked);
-      return { date: d, sellable, booked, totalRooms };
+      const sellable = Math.max(0, operationalTotal - booked);
+      return { date: d, sellable, booked, totalRooms: operationalTotal };
     });
 
     groups.push({ propertyId, roomType, totalRooms, cells });

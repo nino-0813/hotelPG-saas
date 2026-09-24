@@ -49,6 +49,14 @@ export async function pickAvailableRoomForStay(
   }
 
   const candidateRoomIds = roomsAll.map((r) => r.id);
+  const { data: blocks } = await supabase
+    .from("room_blocks")
+    .select("room_id")
+    .eq("is_active", true)
+    .in("room_id", candidateRoomIds)
+    .lte("start_date", checkOutDate)
+    .gte("end_date", checkInDate);
+  const blockedRoomIds = new Set((blocks ?? []).map((block) => block.room_id as string));
   let overlapQ = supabase
     .from("reservations")
     .select("room_id")
@@ -64,7 +72,7 @@ export async function pickAvailableRoomForStay(
   const { data: overlaps } = await overlapQ;
   const occupied = new Set((overlaps ?? []).map((r) => r.room_id as string));
 
-  const candidate = roomsAll.find((r) => !occupied.has(r.id));
+  const candidate = roomsAll.find((r) => !occupied.has(r.id) && !blockedRoomIds.has(r.id));
   if (!candidate) {
     return { roomId: null, roomType: null, roomSmartKey: null };
   }

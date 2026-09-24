@@ -73,6 +73,8 @@ export type PublicAvailabilityComputeOptions = {
    * When this returns a non-null finite number ≥ 0, it wins over {@link availabilityCap} for that date.
    */
   availabilityCapForDate?: (dateYmd: string) => number | null;
+  /** Physical rooms excluded from sale/operating capacity for a given date. */
+  blockedRoomIdsForDate?: (dateYmd: string) => ReadonlySet<string>;
   /**
    * When true, each bookable night with a numeric `minPrice` adds `checkoutEstimate`
    * (1-night stay: 宿泊税 + Stripe 手数料込みの請求見積).
@@ -178,6 +180,8 @@ export function computePublicAvailabilityByDate(
   const sellable = rooms.filter((r) => isRoomSellable(r, partySize));
 
   const dates: PublicDateAvailability[] = dateStrings.map((d) => {
+    const blockedIds = options?.blockedRoomIdsForDate?.(d) ?? new Set<string>();
+    const sellableForDate = sellable.filter((room) => !blockedIds.has(room.id));
     const overrideCap = options?.availabilityCapForDate?.(d);
     const capForD =
       overrideCap != null && Number.isFinite(overrideCap) && overrideCap >= 0
@@ -192,7 +196,7 @@ export function computePublicAvailabilityByDate(
     // cappedBase = min(totalPhysicalRooms, inventoryCap)
     // availableRooms = max(0, cappedBase - bookedCount)
     if (capForD != null) {
-      const roomIdSet = new Set(sellable.map((r) => r.id));
+      const roomIdSet = new Set(sellableForDate.map((r) => r.id));
 
       const bookedRoomIds: string[] = [];
       let unassignedCount = 0;
@@ -211,7 +215,7 @@ export function computePublicAvailabilityByDate(
 
       const bookedAssignedCount = new Set(bookedRoomIds).size;
       const bookedCount = bookedAssignedCount + unassignedCount;
-      const totalPhysicalRooms = sellable.length;
+      const totalPhysicalRooms = sellableForDate.length;
       const cappedBase = Math.min(totalPhysicalRooms, capForD);
       const availableRooms = Math.max(0, cappedBase - bookedCount);
 
@@ -224,7 +228,7 @@ export function computePublicAvailabilityByDate(
         if (minPrice === null) {
           // Fallback to a room-based floor for this (filtered) set.
           let m: number | null = null;
-          for (const r of sellable) {
+          for (const r of sellableForDate) {
             const p = roomUnitPrice(r);
             m = m === null ? p : Math.min(m, p);
           }
@@ -296,7 +300,7 @@ export function computePublicAvailabilityByDate(
 
     const physicalFreeByPropertyType = new Map<PropertyTypeKey, number>();
 
-    for (const r of sellable) {
+    for (const r of sellableForDate) {
       const key: PropertyTypeKey = `${r.property_id}|${r.room_type}`;
       if (!assignedOccupied.has(r.id)) {
         physicalFreeByPropertyType.set(
@@ -307,14 +311,14 @@ export function computePublicAvailabilityByDate(
     }
 
     const types = new Set<string>();
-    for (const r of sellable) {
+    for (const r of sellableForDate) {
       types.add(r.room_type);
     }
 
     const typeFloorPrice = new Map<string, number>();
     for (const t of types) {
       let m: number | null = null;
-      for (const r of sellable) {
+      for (const r of sellableForDate) {
         if (r.room_type !== t) continue;
         const p = roomUnitPrice(r);
         m = m === null ? p : Math.min(m, p);
