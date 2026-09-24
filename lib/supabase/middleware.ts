@@ -22,6 +22,12 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.next({ request });
   }
 
+  // Guest cancellation page (unguessable token-gated). Guests must be able to
+  // open the URL from their confirmation email without a staff login.
+  if (pathname.startsWith("/reservation/cancel")) {
+    return NextResponse.next({ request });
+  }
+
   // Admin HTTP API (x-admin-api-secret in route handler; no Supabase session required).
   if (pathname.startsWith("/api/admin")) {
     return NextResponse.next({ request });
