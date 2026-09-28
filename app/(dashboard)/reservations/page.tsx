@@ -6,6 +6,7 @@ import type {
   Property,
   Reservation,
   Room,
+  RoomBlock,
 } from "@/lib/types/database";
 import { PendingAssignments } from "./pending-assignments";
 import { ReservationCalendar } from "./reservation-calendar";
@@ -45,6 +46,7 @@ export default async function ReservationsPage({
     { data: reservations },
     { data: pending },
     { data: externalCalendars },
+    { data: roomBlocks },
   ] = await Promise.all([
     supabase
       .from("properties")
@@ -81,6 +83,13 @@ export default async function ReservationsPage({
           "id" | "display_name" | "property_id" | "target_room_type"
         >[]
       >(),
+    supabase
+      .from("room_blocks")
+      .select("*")
+      .eq("is_active", true)
+      .lte("start_date", format(addDays(endDate, -1), "yyyy-MM-dd"))
+      .gte("end_date", format(startDate, "yyyy-MM-dd"))
+      .returns<RoomBlock[]>(),
   ]);
 
   return (
@@ -111,6 +120,7 @@ export default async function ReservationsPage({
           properties={properties ?? []}
           rooms={rooms ?? []}
           reservations={reservations ?? []}
+          roomBlocks={roomBlocks ?? []}
           startDate={startDate.toISOString()}
           days={days}
         />

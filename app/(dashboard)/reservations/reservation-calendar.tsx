@@ -17,6 +17,7 @@ import type {
   Reservation,
   ReservationStatus,
   Room,
+  RoomBlock,
 } from "@/lib/types/database";
 import { roomTypeLabel } from "@/lib/room-type-labels";
 import { ReservationModal, type ModalState } from "./reservation-modal";
@@ -25,6 +26,7 @@ type Props = {
   properties: Property[];
   rooms: Room[];
   reservations: Reservation[];
+  roomBlocks: RoomBlock[];
   startDate: string;
   days: number;
 };
@@ -33,6 +35,7 @@ export function ReservationCalendar({
   properties,
   rooms,
   reservations,
+  roomBlocks,
   startDate,
   days,
 }: Props) {
@@ -189,6 +192,7 @@ export function ReservationCalendar({
         <span><strong className="font-semibold">新規：</strong>空いている日をクリック</span>
         <span className="hidden sm:inline"><strong className="font-semibold">部屋変更：</strong>予約を別の部屋へドラッグ</span>
         <span className="sm:hidden"><strong className="font-semibold">部屋変更：</strong>予約の詳細から編集</span>
+        <span><strong className="font-semibold text-amber-800">ブロック：</strong>販売・新規予約の対象外</span>
       </div>
       <div
       className={clsx(
@@ -329,7 +333,31 @@ export function ReservationCalendar({
           }}
         />
 
-        {/* Reservation blocks */}
+        {/* Room blocks */}
+        {roomBlocks.map((block) => {
+          const row = roomRowMap.get(block.room_id);
+          if (!row) return null;
+          const blockStart = new Date(`${block.start_date}T00:00:00`);
+          const blockEndExclusive = addDays(
+            new Date(`${block.end_date}T00:00:00`),
+            1,
+          );
+          const startCol = colForDate(blockStart);
+          const endCol = colForDate(blockEndExclusive);
+          if (endCol <= startCol) return null;
+
+          return (
+            <RoomBlockBand
+              key={block.id}
+              block={block}
+              gridRow={row}
+              gridColumnStart={startCol}
+              gridColumnEnd={endCol}
+            />
+          );
+        })}
+
+        {/* Reservations */}
         {reservations.map((r) => {
           if (!r.room_id) return null;
           const row = roomRowMap.get(r.room_id);
@@ -383,6 +411,42 @@ export function ReservationCalendar({
         rooms={rooms}
       />
       </div>
+    </div>
+  );
+}
+
+function RoomBlockBand({
+  block,
+  gridRow,
+  gridColumnStart,
+  gridColumnEnd,
+}: {
+  block: RoomBlock;
+  gridRow: number;
+  gridColumnStart: number;
+  gridColumnEnd: number;
+}) {
+  const reason = block.reason?.trim();
+  const label = reason ? `ブロック・${reason}` : "ブロック";
+  return (
+    <div
+      className="z-[8] m-0.5 flex cursor-not-allowed items-center gap-1 overflow-hidden rounded border border-amber-500 px-1.5 py-0.5 text-left text-[10px] font-semibold text-amber-950 shadow-sm sm:m-1 sm:rounded-md sm:px-2 sm:text-xs"
+      style={{
+        gridRow,
+        gridColumnStart,
+        gridColumnEnd,
+        backgroundColor: "rgb(254 243 199)",
+        backgroundImage:
+          "repeating-linear-gradient(135deg, rgba(217,119,6,0.13) 0, rgba(217,119,6,0.13) 6px, transparent 6px, transparent 12px)",
+      }}
+      title={`${label}\n${block.start_date} 〜 ${block.end_date}\n通常販売・新規予約の対象外`}
+      aria-label={`${label}。${block.start_date}から${block.end_date}まで。通常販売と新規予約の対象外`}
+    >
+      <svg aria-hidden="true" viewBox="0 0 20 20" className="h-3.5 w-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.8">
+        <circle cx="10" cy="10" r="7" />
+        <path d="m5 15 10-10" />
+      </svg>
+      <span className="truncate">{label}</span>
     </div>
   );
 }
