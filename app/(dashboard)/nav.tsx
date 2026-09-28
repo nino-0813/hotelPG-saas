@@ -15,6 +15,7 @@ const ADMIN_NAV_ITEMS = [
   { href: "/reports", label: "売上・稼働率", icon: "chart" },
   { href: "/masters", label: "プラン・経路" },
   { href: "/pricing", label: "料金管理", icon: "pricing" },
+  { href: "/refunds", label: "返金管理", icon: "pricing" },
   { href: "/rakuten-inventory", label: "楽天在庫" },
   { href: "/external-calendars", label: "外部連携" },
 ] as const;

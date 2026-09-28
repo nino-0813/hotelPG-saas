@@ -23,6 +23,7 @@ import {
   type GuestEmailDraft,
 } from "./actions";
 import { cancelReservation } from "@/app/actions/cancelReservation";
+import { CancellationNotice } from "@/app/reservation/cancel/cancellation-notice";
 import { summarizeMultipleSyncResults } from "@/lib/ical/sync-summary";
 import { roomTypeLabel } from "@/lib/room-type-labels";
 import {
@@ -442,6 +443,7 @@ function ReservationDetail({
   const [draftPending, startDraft] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [emailDraft, setEmailDraft] = useState<GuestEmailDraft | null>(null);
+  const [cancelConfirmationOpen, setCancelConfirmationOpen] = useState(false);
 
   const room = rooms.find((r) => r.id === reservation.room_id);
   const property = properties.find((p) => p.id === room?.property_id);
@@ -460,11 +462,11 @@ function ReservationDetail({
 
   const handleCancel = () => {
     if (reservation.status === "cancelled") return;
-    if (!confirm("この予約をキャンセルしますか？")) return;
     startTransition(async () => {
       setError(null);
       try {
         await cancelReservation(reservation.id);
+        setCancelConfirmationOpen(false);
         router.refresh();
         onClose();
       } catch (e) {
@@ -594,6 +596,52 @@ function ReservationDetail({
 
   return (
     <div>
+      {cancelConfirmationOpen ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="operation-cancel-title"
+          className="fixed inset-0 z-[70] flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4"
+        >
+          <div className="max-h-[92dvh] w-full overflow-auto rounded-t-2xl bg-white shadow-2xl sm:max-w-xl sm:rounded-2xl">
+            <div className="border-b border-neutral-200 px-4 py-4 sm:px-6">
+              <h2 id="operation-cancel-title" className="text-lg font-semibold text-neutral-950">
+                予約キャンセルの確認
+              </h2>
+              <p className="mt-1 text-sm text-neutral-600">
+                {reservation.guest_name} 様の予約をキャンセルします。
+              </p>
+            </div>
+            <div className="px-4 py-5 sm:px-6">
+              <CancellationNotice />
+              {error ? (
+                <p role="alert" className="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+                  {error}
+                </p>
+              ) : null}
+            </div>
+            <div className="flex flex-col-reverse gap-2 border-t border-neutral-200 bg-neutral-50 px-4 py-4 sm:flex-row sm:justify-end sm:px-6">
+              <button
+                type="button"
+                onClick={() => setCancelConfirmationOpen(false)}
+                disabled={pending}
+                className="min-h-11 rounded-md border border-neutral-300 bg-white px-4 text-sm font-medium text-neutral-800 hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                戻る
+              </button>
+              <button
+                type="button"
+                onClick={handleCancel}
+                disabled={pending}
+                className="min-h-11 rounded-md bg-red-600 px-4 text-sm font-semibold text-white hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {pending ? "キャンセル処理中..." : "上記の内容に同意してキャンセルする"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {emailDraft ? (
         <div
           className="fixed inset-0 z-[60] flex bg-black/40 sm:items-center sm:justify-center sm:px-4 sm:py-8"
@@ -829,9 +877,7 @@ function ReservationDetail({
           reservation.status !== "blocked" ? (
             <button
               type="button"
-              onClick={() => {
-                handleCancel();
-              }}
+              onClick={() => setCancelConfirmationOpen(true)}
               disabled={pending}
               className="rounded-md border border-red-300 bg-white px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50"
             >
