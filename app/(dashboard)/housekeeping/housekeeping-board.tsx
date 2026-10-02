@@ -1,6 +1,6 @@
 "use client";
 import { useState, useTransition } from "react";
-import { addDays, format, parseISO } from "date-fns";
+import { addDays, differenceInCalendarDays, format, parseISO } from "date-fns";
 import { useRouter } from "next/navigation";
 import type { Staff } from "@/lib/types/database";
 import type { CleaningRow } from "./page";
@@ -29,12 +29,15 @@ export function HousekeepingBoard({ tasks, staff, selectedDate, dateLabel }: { t
 function CleaningCard({ task, staff }: { task: CleaningRow; staff: Staff[] }) {
   const [pending, startTransition] = useTransition();
   const [assignee, setAssignee] = useState(task.assignee_id ?? "");
+  const nights = task.reservation
+    ? differenceInCalendarDays(parseISO(task.reservation.check_out_date), parseISO(task.reservation.check_in_date))
+    : 0;
   const save = (status: string, nextAssignee = assignee) => startTransition(async () => {
     await updateCleaningTask(task.id, status, nextAssignee);
   });
   return <article className={`grid gap-3 rounded-xl border bg-white p-4 shadow-sm sm:grid-cols-[180px_1fr_180px_auto] sm:items-center ${pending ? "opacity-50" : ""}`}>
     <div><p className="text-xs text-neutral-500">{task.room.property.name}</p><p className="text-xl font-semibold">客室 {task.room.room_number}</p></div>
-    <div><p className="text-sm font-medium">{task.reservation?.guest_name ? `${task.reservation.guest_name}様 退室後` : task.note || "通常清掃"}</p><p className="mt-1 text-xs text-neutral-500">完了期限 {new Date(task.scheduled_for).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Tokyo" })}{task.note ? ` / ${task.note}` : ""}</p></div>
+    <div><div className="flex flex-wrap items-center gap-2"><p className="text-sm font-medium">{task.reservation?.guest_name ? `${task.reservation.guest_name}様 退室後` : task.note || "通常清掃"}</p>{nights >= 2 && <span className="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs font-bold text-amber-800 print:border-black print:bg-white print:text-black">連泊・{nights}泊</span>}</div><p className="mt-1 text-xs text-neutral-500">完了期限 {new Date(task.scheduled_for).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Tokyo" })}{task.note ? ` / ${task.note}` : ""}</p></div>
     <label className="text-xs font-medium text-neutral-600 print:text-sm">担当者<select value={assignee} onChange={(e) => { setAssignee(e.target.value); save(task.status, e.target.value); }} disabled={pending} className="mt-1 min-h-11 w-full rounded-lg border border-neutral-300 bg-white px-2 text-sm print:hidden"><option value="">未割当</option>{staff.map((s) => <option key={s.id} value={s.id}>{s.display_name}</option>)}</select><span className="hidden font-normal print:block">{staff.find((s) => s.id === assignee)?.display_name ?? "未割当"}</span></label>
     <div className="flex gap-2 print:hidden">{task.status === "done" ? <button onClick={() => save("todo")} disabled={pending} className="min-h-11 rounded-lg border px-3 text-sm">未完了に戻す</button> : <><button onClick={() => save("in_progress")} disabled={pending} className="min-h-11 rounded-lg border border-amber-300 bg-amber-50 px-3 text-sm">作業開始</button><button onClick={() => save("done")} disabled={pending} className="min-h-11 rounded-lg bg-emerald-600 px-4 text-sm font-semibold text-white">完了</button></>}</div>
     <div className="hidden print:block">□ 完了</div>

@@ -6,7 +6,7 @@ import { HousekeepingBoard } from "./housekeeping-board";
 
 export type CleaningRow = Task & {
   room: Pick<Room, "room_number"> & { property: Pick<Property, "name"> };
-  reservation: { guest_name: string; check_out_date: string; special_notes: string | null } | null;
+  reservation: { guest_name: string; check_in_date: string; check_out_date: string; special_notes: string | null } | null;
   assignee: Pick<Staff, "display_name"> | null;
 };
 
@@ -29,7 +29,7 @@ export default async function HousekeepingPage({ searchParams }: { searchParams:
   const rangeStart = new Date(`${selectedDate}T00:00:00+09:00`);
   const rangeEnd = new Date(`${nextDate}T00:00:00+09:00`);
   const [{ data: tasks }, { data: staff }] = await Promise.all([
-    supabase.from("tasks").select(`*,room:rooms!inner(room_number,property:properties!inner(name)),reservation:reservations(guest_name,check_out_date,special_notes),assignee:staff(display_name)`).eq("type", "cleaning").gte("scheduled_for", rangeStart.toISOString()).lt("scheduled_for", rangeEnd.toISOString()).order("scheduled_for").returns<CleaningRow[]>(),
+    supabase.from("tasks").select(`*,room:rooms!inner(room_number,property:properties!inner(name)),reservation:reservations(guest_name,check_in_date,check_out_date,special_notes),assignee:staff(display_name)`).eq("type", "cleaning").gte("scheduled_for", rangeStart.toISOString()).lt("scheduled_for", rangeEnd.toISOString()).order("scheduled_for").returns<CleaningRow[]>(),
     supabase.from("staff").select("*").order("display_name").returns<Staff[]>(),
   ]);
   return <HousekeepingBoard tasks={tasks ?? []} staff={staff ?? []} selectedDate={selectedDate} dateLabel={format(selected, "yyyy/MM/dd")} />;
