@@ -1,11 +1,12 @@
 import Link from "next/link";
 import clsx from "clsx";
 
-export function ReservationViewTabs({ active }: { active: "calendar" | "list" | "new" }) {
+export function ReservationViewTabs({ active }: { active: "calendar" | "list" | "new" | "availability" }) {
   const items = [
     { key: "calendar" as const, href: "/reservations", label: "カレンダー" },
     { key: "list" as const, href: "/reservations/list", label: "予約一覧" },
     { key: "new" as const, href: "/reservations/new", label: "＋ 新規予約追加" },
+    { key: "availability" as const, href: "/reservations/availability", label: "残室表" },
   ];
 
   return (
