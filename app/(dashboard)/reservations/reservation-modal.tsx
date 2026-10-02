@@ -221,15 +221,27 @@ export function NewReservationForm({
           </div>
         ) : null}
         <Field label="部屋" required>
-          <select
-            name="room_id"
-            required
-            defaultValue={roomId ?? ""}
-            className={inputCls}
-          >
-            <option value="" disabled>部屋を選択</option>
-            <RoomOptions rooms={rooms} properties={properties} />
-          </select>
+          {roomId && room && property ? (
+            <>
+              <input type="hidden" name="room_id" value={roomId} />
+              <div className={`${inputCls} flex items-center bg-neutral-50 text-neutral-800`}>
+                {property.name} / {room.room_number}号室 — {roomTypeLabel(room.room_type)}
+              </div>
+              <span className="mt-1 block text-xs text-neutral-500">
+                カレンダーで選択した客室に予約を作成します。
+              </span>
+            </>
+          ) : (
+            <select
+              name="room_id"
+              required
+              defaultValue=""
+              className={inputCls}
+            >
+              <option value="" disabled>部屋を選択</option>
+              <RoomOptions rooms={rooms} properties={properties} />
+            </select>
+          )}
         </Field>
         <Field label="ゲスト名" required>
           <input
