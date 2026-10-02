@@ -38,7 +38,7 @@ export async function createReservation(input: CreateReservationInput) {
     check_in_date: input.check_in_date,
     check_in_time: input.check_in_time || "15:00",
     check_out_date: input.check_out_date,
-    check_out_time: input.check_out_time || "11:00",
+    check_out_time: input.check_out_time || "10:00",
     payment_method: input.payment_method,
     smart_key_code: input.smart_key_code?.trim() || null,
     special_notes: input.special_notes?.trim() || null,

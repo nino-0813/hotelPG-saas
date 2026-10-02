@@ -153,7 +153,7 @@ export function NewReservationForm({
         check_in_date: String(formData.get("check_in_date")),
         check_in_time: String(formData.get("check_in_time") || "15:00"),
         check_out_date: String(formData.get("check_out_date")),
-        check_out_time: String(formData.get("check_out_time") || "11:00"),
+        check_out_time: String(formData.get("check_out_time") || "10:00"),
         payment_method: String(formData.get("payment_method")) as PaymentMethod,
         smart_key_code: String(formData.get("smart_key_code") || ""),
         special_notes: withReservationAmounts(
@@ -296,7 +296,7 @@ export function NewReservationForm({
             <input
               name="check_out_time"
               type="time"
-              defaultValue="11:00"
+              defaultValue="10:00"
               className={inputCls}
             />
           </Field>
@@ -969,7 +969,7 @@ function EditReservationForm({
           check_in_date: checkInDate,
           check_in_time: String(formData.get("check_in_time") || "15:00"),
           check_out_date: checkOutDate,
-          check_out_time: String(formData.get("check_out_time") || "11:00"),
+          check_out_time: String(formData.get("check_out_time") || "10:00"),
           payment_method: String(formData.get("payment_method")) as PaymentMethod,
           smart_key_code: String(formData.get("smart_key_code") || ""),
           special_notes: withReservationAmounts(
