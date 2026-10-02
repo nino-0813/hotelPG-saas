@@ -9,7 +9,7 @@ export type RoomType =
   /** HOTEL PG-III 楽天プラン別（メゾネット洋室 最大6名） */
   | "maisonette_6";
 export type StaffRole = "admin" | "staff";
-export type PaymentMethod = "online" | "onsite";
+export type PaymentMethod = "online" | "onsite" | "accounts_receivable";
 export type ReservationStatus =
   | "confirmed"
   | "checked_in"

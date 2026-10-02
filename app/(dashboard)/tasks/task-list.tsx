@@ -4,6 +4,7 @@ import { Fragment, useTransition } from "react";
 import { format, isPast, isToday } from "date-fns";
 import { ja } from "date-fns/locale";
 import clsx from "clsx";
+import { paymentMethodLabel } from "@/lib/payment-methods";
 import type { TaskType } from "@/lib/types/database";
 import { assignTaskToMe, unassignTask, updateTaskStatus } from "./actions";
 import type { TaskWithJoins } from "./page";
@@ -158,9 +159,9 @@ function TaskCard({
           <span>
             {task.reservation.check_in_date} → {task.reservation.check_out_date}
           </span>
-          {task.reservation.payment_method === "onsite" ? (
-            <span className="rounded bg-orange-100 px-1 text-[10px] font-medium text-orange-800">
-              現地
+          {task.reservation.payment_method !== "online" ? (
+            <span className={clsx("rounded px-1 text-[10px] font-medium", task.reservation.payment_method === "onsite" ? "bg-orange-100 text-orange-800" : "bg-violet-100 text-violet-800")}>
+              {paymentMethodLabel(task.reservation.payment_method, true)}
             </span>
           ) : null}
         </div>

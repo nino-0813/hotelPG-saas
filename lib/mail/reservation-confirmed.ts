@@ -28,6 +28,9 @@ export function reservationConfirmedPaymentLine(
   if (paymentMethod === "onsite") {
     return "現地決済（当日ご精算）";
   }
+  if (paymentMethod === "accounts_receivable") {
+    return "売掛（後日ご請求）";
+  }
   return "オンラインにて決済済み（金額は決済完了メール・ご利用明細をご確認ください）";
 }
 
@@ -35,6 +38,9 @@ export function reservationConfirmedOpeningLine(
   paymentMethod: string | null | undefined,
 ): string {
   if (paymentMethod === "onsite") {
+    return "以下の内容でご予約が確定いたしました。";
+  }
+  if (paymentMethod === "accounts_receivable") {
     return "以下の内容でご予約が確定いたしました。";
   }
   return "決済が完了し、以下の内容でご予約が確定いたしました。";

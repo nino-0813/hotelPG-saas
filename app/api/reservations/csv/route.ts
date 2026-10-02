@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { getCachedSupabaseAuth } from "@/lib/supabase/server";
 import type { Property, Reservation, ReservationStatus, Room } from "@/lib/types/database";
 import { reservationBreakfastFee, reservationRevenue, sourceLabel } from "@/lib/revenue";
+import { paymentMethodLabel } from "@/lib/payment-methods";
 
 const VALID_STATUSES = new Set<ReservationStatus>(["confirmed", "checked_in", "checked_out", "cancelled", "blocked"]);
 const STATUS_LABELS: Record<ReservationStatus, string> = { confirmed: "未到着", checked_in: "滞在中", checked_out: "出発済み", cancelled: "キャンセル", blocked: "在庫停止" };
@@ -48,7 +49,7 @@ export async function GET(request: NextRequest) {
   const lines = filtered.map((reservation) => {
     const room = reservation.room_id ? roomById.get(reservation.room_id) : undefined;
     const hotel = propertyById.get(room?.property_id ?? reservation.requested_property_id ?? "");
-    return [reservation.id, reservation.created_at, reservation.check_in_date, reservation.check_out_date, reservation.guest_name, reservation.guest_phone, reservation.guest_email, hotel?.name, room?.room_number, reservation.guest_count, sourceLabel(reservation.source), reservation.payment_method === "onsite" ? "現地決済" : "オンライン", STATUS_LABELS[reservation.status], reservationBreakfastFee(reservation), reservationRevenue(reservation), reservation.smart_key_code].map(csvCell).join(",");
+    return [reservation.id, reservation.created_at, reservation.check_in_date, reservation.check_out_date, reservation.guest_name, reservation.guest_phone, reservation.guest_email, hotel?.name, room?.room_number, reservation.guest_count, sourceLabel(reservation.source), paymentMethodLabel(reservation.payment_method), STATUS_LABELS[reservation.status], reservationBreakfastFee(reservation), reservationRevenue(reservation), reservation.smart_key_code].map(csvCell).join(",");
   });
   const csv = `\uFEFF${header.map(csvCell).join(",")}\n${lines.join("\n")}`;
   return new Response(csv, { headers: { "content-type": "text/csv; charset=utf-8", "content-disposition": `attachment; filename="hotelpg-reservations-${new Date().toISOString().slice(0, 10)}.csv"` } });

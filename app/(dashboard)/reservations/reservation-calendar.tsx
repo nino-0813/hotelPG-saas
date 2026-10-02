@@ -20,6 +20,7 @@ import type {
   RoomBlock,
 } from "@/lib/types/database";
 import { roomTypeLabel } from "@/lib/room-type-labels";
+import { paymentMethodLabel } from "@/lib/payment-methods";
 import { ReservationModal, type ModalState } from "./reservation-modal";
 
 type Props = {
@@ -678,6 +679,7 @@ function ReservationBlock({
 }) {
   const { color, border } = colorForStatus(reservation.status);
   const isOnsite = reservation.payment_method === "onsite";
+  const isAccountsReceivable = reservation.payment_method === "accounts_receivable";
   const hasNotes = !!reservation.special_notes?.trim();
 
   return (
@@ -720,6 +722,11 @@ function ReservationBlock({
       {isOnsite ? (
         <span className="rounded bg-orange-200 px-0.5 text-[8px] font-semibold text-orange-900 sm:px-1 sm:text-[9px]">
           現
+        </span>
+      ) : null}
+      {isAccountsReceivable ? (
+        <span className="rounded bg-violet-200 px-0.5 text-[8px] font-semibold text-violet-950 sm:px-1 sm:text-[9px]">
+          掛
         </span>
       ) : null}
       {reservation.source === "stripe_web" ? (
@@ -778,7 +785,7 @@ function tooltipText(r: Reservation) {
   const parts = [
     `${r.guest_name} (${r.guest_count}名)`,
     `${r.check_in_date} ${r.check_in_time?.slice(0, 5) ?? ""} → ${r.check_out_date} ${r.check_out_time?.slice(0, 5) ?? ""}`,
-    `決済: ${r.payment_method === "onsite" ? "現地" : "オンライン"}`,
+    `決済: ${paymentMethodLabel(r.payment_method, true)}`,
   ];
   if (r.status === "blocked") parts.push("楽天ICSブロック（Web在庫対象外）");
   if (r.source === "stripe_web") parts.push("予約元: 公式Web（Stripe）");

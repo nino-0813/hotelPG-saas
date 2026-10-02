@@ -318,6 +318,10 @@ export function NewReservationForm({
               <input type="radio" name="payment_method" value="onsite" />
               現地決済
             </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="radio" name="payment_method" value="accounts_receivable" />
+              売掛
+            </label>
           </div>
         </Field>
 
@@ -747,8 +751,12 @@ function ReservationDetail({
             <span className="rounded bg-orange-100 px-1.5 py-0.5 text-orange-800">
               現地決済
             </span>
+          ) : reservation.payment_method === "accounts_receivable" ? (
+            <span className="rounded bg-violet-100 px-1.5 py-0.5 text-violet-800">
+              売掛
+            </span>
           ) : (
-            "オンライン"
+            "オンライン決済"
           )}
         </Row>
         <Row label="スマートキー">{reservation.smart_key_code ?? "—"}</Row>
@@ -1098,6 +1106,15 @@ function EditReservationForm({
                 defaultChecked={reservation.payment_method === "onsite"}
               />
               現地決済
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="radio"
+                name="payment_method"
+                value="accounts_receivable"
+                defaultChecked={reservation.payment_method === "accounts_receivable"}
+              />
+              売掛
             </label>
           </div>
         </Field>
