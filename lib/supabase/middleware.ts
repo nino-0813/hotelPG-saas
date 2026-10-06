@@ -28,6 +28,12 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.next({ request });
   }
 
+  // Receipt download page (encrypted or unguessable token-gated). Customers
+  // open this URL directly from the email without a staff account.
+  if (pathname.startsWith("/receipt/")) {
+    return NextResponse.next({ request });
+  }
+
   // Admin HTTP API (x-admin-api-secret in route handler; no Supabase session required).
   if (pathname.startsWith("/api/admin")) {
     return NextResponse.next({ request });
