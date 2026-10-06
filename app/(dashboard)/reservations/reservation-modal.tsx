@@ -460,6 +460,7 @@ function ReservationDetail({
   const [error, setError] = useState<string | null>(null);
   const [emailDraft, setEmailDraft] = useState<GuestEmailDraft | null>(null);
   const [cancelConfirmationOpen, setCancelConfirmationOpen] = useState(false);
+  const [receiptOpen, setReceiptOpen] = useState(false);
 
   const room = rooms.find((r) => r.id === reservation.room_id);
   const property = properties.find((p) => p.id === room?.property_id);
@@ -729,6 +730,15 @@ function ReservationDetail({
         </div>
       ) : null}
 
+      {receiptOpen ? (
+        <ReceiptDialog
+          reservation={reservation}
+          propertyName={property?.name ?? null}
+          roomNumber={room?.room_number ?? null}
+          onClose={() => setReceiptOpen(false)}
+        />
+      ) : null}
+
       <ModalHeader
         title="予約詳細"
         subtitle={
@@ -854,6 +864,19 @@ function ReservationDetail({
           >
             {draftPending ? "作成中..." : "予約確定メール送信"}
           </button>
+          <button
+            type="button"
+            onClick={() => setReceiptOpen(true)}
+            disabled={pending || sending || reservationRevenue(reservation) <= 0}
+            className="rounded-md border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-900 hover:bg-emerald-100 disabled:opacity-50"
+            title={
+              reservationRevenue(reservation) > 0
+                ? "領収書を発行、または発行してメール送信"
+                : "合計宿泊料金を登録すると発行できます"
+            }
+          >
+            領収書を発行
+          </button>
           {reservation.status === "checked_in" && (
             <button
               type="button"
@@ -936,6 +959,205 @@ function ReservationDetail({
           閉じる
         </button>
       </ModalFooter>
+    </div>
+  );
+}
+
+type ReceiptIssueResult = {
+  receipt_number: string;
+  downloadUrl: string;
+  emailed_at: string | null;
+  stored: boolean;
+};
+
+function ReceiptDialog({
+  reservation,
+  propertyName,
+  roomNumber,
+  onClose,
+}: {
+  reservation: Reservation;
+  propertyName: string | null;
+  roomNumber: string | null;
+  onClose: () => void;
+}) {
+  const [recipientName, setRecipientName] = useState(reservation.guest_name);
+  const [description, setDescription] = useState("宿泊代として");
+  const [amount, setAmount] = useState(String(reservationRevenue(reservation) || ""));
+  const [email, setEmail] = useState(reservation.guest_email ?? "");
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<ReceiptIssueResult | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const issue = async (sendEmail: boolean) => {
+    setPending(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/receipts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          reservationId: reservation.id,
+          recipientName,
+          description,
+          amount: Number(amount),
+          email,
+          sendEmail,
+        }),
+      });
+      const json = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        receipt?: ReceiptIssueResult;
+      };
+      if (!response.ok || !json.receipt) {
+        setError(json.error ?? "領収書の発行に失敗しました");
+        return;
+      }
+      setResult(json.receipt);
+    } catch (e) {
+      console.error("[receipt issue]", e);
+      setError("領収書の発行に失敗しました");
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const copyUrl = async () => {
+    if (!result) return;
+    await navigator.clipboard.writeText(result.downloadUrl);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1800);
+  };
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="receipt-dialog-title"
+      className="fixed inset-0 z-[80] flex bg-black/45 sm:items-center sm:justify-center sm:p-4"
+      onClick={(event) => {
+        if (event.target === event.currentTarget && !pending) onClose();
+      }}
+    >
+      <div className="h-full w-full overflow-auto bg-white shadow-2xl sm:h-auto sm:max-h-[92dvh] sm:max-w-xl sm:rounded-xl">
+        <div className="border-b border-neutral-200 px-4 py-4 sm:px-6">
+          <h2 id="receipt-dialog-title" className="text-lg font-semibold text-neutral-950">
+            {result ? "領収書を発行しました" : "領収書を発行"}
+          </h2>
+          <p className="mt-1 text-sm text-neutral-600">
+            {propertyName && roomNumber ? `${propertyName} / ${roomNumber}  ` : ""}
+            {reservation.check_in_date} - {reservation.check_out_date}
+          </p>
+        </div>
+
+        {result ? (
+          <div className="space-y-4 px-4 py-5 sm:px-6">
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4">
+              <div className="text-sm font-semibold text-emerald-950">{result.receipt_number}</div>
+              <p className="mt-1 text-sm text-emerald-800">
+                {result.emailed_at
+                  ? `${email} へダウンロードURLを送信しました。`
+                  : result.stored
+                    ? "発行履歴に保存しました。必要に応じてURLをお客様へ送れます。"
+                    : "領収書を発行しました。必要に応じてURLをお客様へ送れます。"}
+              </p>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-neutral-600">専用ダウンロードURL</label>
+              <div className="mt-1 break-all rounded-md border border-neutral-200 bg-neutral-50 p-3 text-xs text-neutral-700">
+                {result.downloadUrl}
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <a
+                href={result.downloadUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-800"
+              >
+                PDFを確認
+              </a>
+              <button type="button" onClick={copyUrl} className={btnSecondary}>
+                {copied ? "コピーしました" : "URLをコピー"}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4 px-4 py-5 sm:px-6">
+            <label className="block text-sm font-medium text-neutral-800">
+              宛名 <span className="text-red-600">*</span>
+              <input
+                value={recipientName}
+                onChange={(event) => setRecipientName(event.target.value)}
+                className="mt-1.5 w-full rounded-md border border-neutral-300 px-3 py-2.5 font-normal shadow-sm focus:border-neutral-500 focus:outline-none focus:ring-1 focus:ring-neutral-400"
+              />
+            </label>
+            <label className="block text-sm font-medium text-neutral-800">
+              但し書き <span className="text-red-600">*</span>
+              <input
+                value={description}
+                onChange={(event) => setDescription(event.target.value)}
+                className="mt-1.5 w-full rounded-md border border-neutral-300 px-3 py-2.5 font-normal shadow-sm focus:border-neutral-500 focus:outline-none focus:ring-1 focus:ring-neutral-400"
+              />
+            </label>
+            <label className="block text-sm font-medium text-neutral-800">
+              金額（税込） <span className="text-red-600">*</span>
+              <div className="relative mt-1.5">
+                <span className="pointer-events-none absolute left-3 top-2.5 text-neutral-500">¥</span>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={amount}
+                  onChange={(event) => setAmount(event.target.value)}
+                  className="w-full rounded-md border border-neutral-300 py-2.5 pl-7 pr-3 font-normal shadow-sm focus:border-neutral-500 focus:outline-none focus:ring-1 focus:ring-neutral-400"
+                />
+              </div>
+            </label>
+            <label className="block text-sm font-medium text-neutral-800">
+              送信先メール
+              <input
+                type="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="発行のみの場合は空欄でも可"
+                className="mt-1.5 w-full rounded-md border border-neutral-300 px-3 py-2.5 font-normal shadow-sm focus:border-neutral-500 focus:outline-none focus:ring-1 focus:ring-neutral-400"
+              />
+            </label>
+            <p className="rounded-md bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-900">
+              発行後の内容は変更されません。訂正が必要な場合は、正しい内容で再発行してください。
+            </p>
+            {error ? <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p> : null}
+          </div>
+        )}
+
+        <div className="sticky bottom-0 flex flex-wrap justify-end gap-2 border-t border-neutral-200 bg-neutral-50 px-4 py-4 sm:px-6">
+          <button type="button" onClick={onClose} disabled={pending} className={btnSecondary}>
+            {result ? "閉じる" : "キャンセル"}
+          </button>
+          {!result ? (
+            <>
+              <button
+                type="button"
+                onClick={() => issue(false)}
+                disabled={pending || !recipientName.trim() || !description.trim() || Number(amount) <= 0}
+                className={btnSecondary}
+              >
+                {pending ? "発行中..." : "発行のみ"}
+              </button>
+              <button
+                type="button"
+                onClick={() => issue(true)}
+                disabled={pending || !recipientName.trim() || !description.trim() || Number(amount) <= 0 || !email.trim()}
+                className="rounded-md bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {pending ? "発行・送信中..." : "発行してメール送信"}
+              </button>
+            </>
+          ) : null}
+        </div>
+      </div>
     </div>
   );
 }
