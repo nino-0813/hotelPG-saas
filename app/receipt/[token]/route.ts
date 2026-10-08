@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { buildReceiptPdf } from "@/lib/receipt-pdf";
 import { readEncryptedReceiptToken } from "@/lib/receipt-token";
 import { createServiceRoleSupabase } from "@/lib/supabase/service-role";
+import { getReceiptIssuer } from "@/lib/receipt-config";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,6 +26,7 @@ export async function GET(
       .eq("access_token", token)
       .maybeSingle();
     if (data) {
+      const issuer = getReceiptIssuer();
       receiptData = {
         receiptNumber: data.receipt_number,
         reissueNumber: data.reissue_number,
@@ -41,7 +43,9 @@ export async function GET(
         checkInDate: data.check_in_date,
         checkOutDate: data.check_out_date,
         issuerName: data.issuer_name,
+        facilityName: issuer.facilityName,
         issuerAddress: data.issuer_address,
+        facilityAddresses: issuer.facilityAddresses,
         issuerPhone: data.issuer_phone,
         invoiceRegistrationNumber: data.invoice_registration_number,
       };

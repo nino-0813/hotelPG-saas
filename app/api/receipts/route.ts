@@ -127,7 +127,9 @@ export async function POST(req: NextRequest) {
       checkInDate: reservation.check_in_date,
       checkOutDate: reservation.check_out_date,
       issuerName: issuer.name,
+      facilityName: issuer.facilityName,
       issuerAddress: issuer.address,
+      facilityAddresses: issuer.facilityAddresses,
       issuerPhone: issuer.phone,
       invoiceRegistrationNumber: issuer.invoiceRegistrationNumber,
     };
@@ -168,16 +170,28 @@ export async function POST(req: NextRequest) {
       : createEncryptedReceiptToken(snapshot);
     const downloadUrl = new URL(`/receipt/${accessToken}`, req.nextUrl.origin).toString();
     let emailedAt: string | null = null;
+    let emailError: string | null = null;
     if (sendEmail) {
       const stay = `${reservation.check_in_date.replaceAll("-", "/")} - ${reservation.check_out_date.replaceAll("-", "/")}`;
-      await sendMail(
-        email,
-        "【HOTEL PG】領収書発行のご案内",
-        `${recipientName} 様\n\nHOTEL PGをご利用いただき、ありがとうございます。\n領収書を発行しました。下記の専用URLからPDFをダウンロードしてください。\n\n領収書番号: ${number}\n宿泊期間: ${stay}\n金額: ${amount.toLocaleString("ja-JP")}円\n支払方法: ${paymentLabel(reservation.payment_method)}\n\n領収書ダウンロードURL\n${downloadUrl}\n\n※このURLは領収書の閲覧専用です。第三者への転送はお控えください。\n\nHOTEL PG`,
-      );
-      emailedAt = new Date().toISOString();
-      if (stored) {
-        await auth.supabase.from("receipt_documents").update({ emailed_at: emailedAt }).eq("id", receipt!.id);
+      try {
+        await sendMail(
+          email,
+          "【HOTEL PG】領収書発行のご案内",
+          `${recipientName} 様\n\nHOTEL PGをご利用いただき、ありがとうございます。\n領収書を発行しました。下記の専用URLからPDFをダウンロードしてください。\n\n領収書番号: ${number}\n宿泊期間: ${stay}\n金額: ${amount.toLocaleString("ja-JP")}円\n支払方法: ${paymentLabel(reservation.payment_method)}\n\n領収書ダウンロードURL\n${downloadUrl}\n\n※このURLは領収書の閲覧専用です。第三者への転送はお控えください。\n\nHOTEL PG`,
+        );
+        emailedAt = new Date().toISOString();
+        if (stored) {
+          const { error: updateError } = await auth.supabase
+            .from("receipt_documents")
+            .update({ emailed_at: emailedAt })
+            .eq("id", receipt!.id);
+          if (updateError) {
+            console.error("[receipts] emailed_at update failed", updateError);
+          }
+        }
+      } catch (mailError) {
+        console.error("[receipts] email delivery failed", mailError);
+        emailError = "領収書は発行されましたが、メール送信に失敗しました。送信先を確認し、専用URLをお客様へ送付してください。";
       }
     }
 
@@ -189,6 +203,7 @@ export async function POST(req: NextRequest) {
         reissue_number: count ?? 0,
         downloadUrl,
         emailed_at: emailedAt,
+        email_error: emailError,
         stored,
       },
       suggestedAmount: reservationRevenue(reservation),

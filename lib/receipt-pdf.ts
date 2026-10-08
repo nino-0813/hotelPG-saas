@@ -19,7 +19,9 @@ export type ReceiptPdfData = {
   checkInDate: string | null;
   checkOutDate: string | null;
   issuerName: string;
+  facilityName?: string | null;
   issuerAddress: string;
+  facilityAddresses?: string[];
   issuerPhone: string | null;
   invoiceRegistrationNumber: string | null;
 };
@@ -140,17 +142,25 @@ export async function buildReceiptPdf(data: ReceiptPdfData) {
     drawRight(page, font, yen(data.nonTaxableAmount), left + 255, 218, 8);
   }
 
-  const issuerX = 355;
-  drawText(page, font, data.issuerName, issuerX, 285, 12);
-  drawText(page, font, data.issuerAddress, issuerX, 263, 8.5, COLORS.muted);
-  if (data.issuerPhone) drawText(page, font, `TEL ${data.issuerPhone}`, issuerX, 246, 8.5, COLORS.muted);
+  drawText(page, font, `発行元：${data.issuerName}`, left, 188, 9);
+  drawText(page, font, `施設名：${data.facilityName ?? "HOTELPG"}`, left, 172, 9);
+  drawText(page, font, `会社住所：${data.issuerAddress}`, left, 156, 8.5, COLORS.muted);
+  let issuerY = 140;
+  for (const address of data.facilityAddresses ?? []) {
+    drawText(page, font, address, left, issuerY, 8.5, COLORS.muted);
+    issuerY -= 16;
+  }
+  if (data.issuerPhone) {
+    drawText(page, font, `電話：${data.issuerPhone}`, left, issuerY, 8.5, COLORS.muted);
+    issuerY -= 16;
+  }
   if (data.invoiceRegistrationNumber) {
-    drawText(page, font, `適格請求書発行事業者登録番号 ${data.invoiceRegistrationNumber}`, issuerX, 229, 7.5, COLORS.muted);
+    drawText(page, font, `登録番号：${data.invoiceRegistrationNumber}`, left, issuerY, 8.5, COLORS.muted);
   }
 
-  page.drawLine({ start: { x: left, y: 164 }, end: { x: right, y: 164 }, thickness: 0.5, color: COLORS.line });
-  drawText(page, font, "本書はHOTEL PGの管理画面から発行された電子領収書です。", left, 140, 8, COLORS.muted);
-  drawText(page, font, "領収書番号により発行履歴を管理しています。", left, 124, 8, COLORS.muted);
+  page.drawLine({ start: { x: left, y: 58 }, end: { x: right, y: 58 }, thickness: 0.5, color: COLORS.line });
+  drawText(page, font, "本書はHOTEL PGの管理画面から発行された電子領収書です。", left, 39, 7.5, COLORS.muted);
+  drawText(page, font, "領収書番号により発行履歴を管理しています。", left, 25, 7.5, COLORS.muted);
 
   document.setTitle(`領収書 ${data.receiptNumber}`);
   document.setAuthor(data.issuerName);
@@ -158,4 +168,3 @@ export async function buildReceiptPdf(data: ReceiptPdfData) {
   document.setProducer("HOTEL PG Operations");
   return document.save();
 }
-

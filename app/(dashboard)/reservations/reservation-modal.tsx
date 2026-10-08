@@ -967,6 +967,7 @@ type ReceiptIssueResult = {
   receipt_number: string;
   downloadUrl: string;
   emailed_at: string | null;
+  email_error: string | null;
   stored: boolean;
 };
 
@@ -1017,7 +1018,9 @@ function ReceiptDialog({
       setResult(json.receipt);
     } catch (e) {
       console.error("[receipt issue]", e);
-      setError("領収書の発行に失敗しました");
+      setError(
+        "通信が切断されました。領収書が発行済みの可能性があるため、再発行する前に画面を開き直して発行履歴を確認してください。",
+      );
     } finally {
       setPending(false);
     }
@@ -1053,10 +1056,12 @@ function ReceiptDialog({
 
         {result ? (
           <div className="space-y-4 px-4 py-5 sm:px-6">
-            <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4">
-              <div className="text-sm font-semibold text-emerald-950">{result.receipt_number}</div>
-              <p className="mt-1 text-sm text-emerald-800">
-                {result.emailed_at
+            <div className={clsx("rounded-lg border p-4", result.email_error ? "border-amber-200 bg-amber-50" : "border-emerald-200 bg-emerald-50")}>
+              <div className={clsx("text-sm font-semibold", result.email_error ? "text-amber-950" : "text-emerald-950")}>{result.receipt_number}</div>
+              <p className={clsx("mt-1 text-sm", result.email_error ? "text-amber-900" : "text-emerald-800")}>
+                {result.email_error
+                  ? result.email_error
+                  : result.emailed_at
                   ? `${email} へダウンロードURLを送信しました。`
                   : result.stored
                     ? "発行履歴に保存しました。必要に応じてURLをお客様へ送れます。"
