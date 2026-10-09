@@ -5,6 +5,7 @@ import { getReceiptIssuer } from "@/lib/receipt-config";
 import type { ReceiptPdfData } from "@/lib/receipt-pdf";
 import { createEncryptedReceiptToken } from "@/lib/receipt-token";
 import { reservationRevenue, reservationTax } from "@/lib/revenue";
+import { ACCOMMODATION_TAX_PER_GUEST_PER_NIGHT_JPY } from "@/lib/stripe/stripe-web-checkout-pricing";
 import { createRouteHandlerSupabaseClient } from "@/lib/supabase/route-handler";
 import type { PaymentMethod, Reservation } from "@/lib/types/database";
 
@@ -50,6 +51,26 @@ function paymentLabel(value: PaymentMethod) {
   if (value === "onsite") return "現地決済";
   if (value === "accounts_receivable") return "売掛";
   return "オンライン決済";
+}
+
+function accommodationTaxForReservation(
+  reservation: Pick<Reservation, "check_in_date" | "check_out_date" | "guest_count">,
+) {
+  const [inYear, inMonth, inDay] = reservation.check_in_date.split("-").map(Number);
+  const [outYear, outMonth, outDay] = reservation.check_out_date.split("-").map(Number);
+  const nights = Math.max(
+    1,
+    Math.round(
+      (Date.UTC(outYear, outMonth - 1, outDay) -
+        Date.UTC(inYear, inMonth - 1, inDay)) /
+        86_400_000,
+    ),
+  );
+  return (
+    ACCOMMODATION_TAX_PER_GUEST_PER_NIGHT_JPY *
+    Math.max(1, reservation.guest_count) *
+    nights
+  );
 }
 
 export async function GET(req: NextRequest) {
@@ -101,7 +122,8 @@ export async function POST(req: NextRequest) {
       .select("id", { count: "exact", head: true })
       .eq("reservation_id", reservationId);
     const taxes = reservationTax(reservation);
-    const nonTaxableAmount = Math.min(Math.max(taxes.lodging, 0), amount);
+    const calculatedAccommodationTax = accommodationTaxForReservation(reservation);
+    const nonTaxableAmount = Math.min(calculatedAccommodationTax, amount);
     const taxableAmount = Math.max(amount - nonTaxableAmount, 0);
     const taxAmount = Math.min(
       taxes.consumption > 0 ? taxes.consumption : Math.floor(taxableAmount * 10 / 110),

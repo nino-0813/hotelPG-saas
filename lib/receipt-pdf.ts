@@ -138,7 +138,7 @@ export async function buildReceiptPdf(data: ReceiptPdfData) {
   drawText(page, font, "うち消費税（10%）", left + 14, 239, 9, COLORS.muted);
   drawRight(page, font, yen(data.taxAmount), left + 255, 239, 9);
   if (data.nonTaxableAmount > 0) {
-    drawText(page, font, "非課税額（宿泊税等）", left + 14, 218, 8, COLORS.muted);
+    drawText(page, font, "宿泊税（200円 / 人 / 泊）", left + 14, 218, 8, COLORS.muted);
     drawRight(page, font, yen(data.nonTaxableAmount), left + 255, 218, 8);
   }
 
