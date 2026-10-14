@@ -173,7 +173,7 @@ export async function syncOneCalendar(
       check_in_date: ev.check_in_date,
       check_out_date: ev.check_out_date,
       check_in_time: "15:00",
-      check_out_time: "11:00",
+      check_out_time: "10:00",
       payment_method: "online" as const,
       smart_key_code: smartKeyCode,
       special_notes: noteParts || null,

@@ -3,8 +3,9 @@ import { createServiceRoleSupabase } from "@/lib/supabase/service-role";
 import { getCachedSupabaseAuth } from "@/lib/supabase/server";
 import type { PublicRoomSettingRow, PublicSeasonalRoomRateRow } from "@/lib/types/public-catalog";
 import { deleteSeasonalRate, saveSeasonalRate, updateBaseRate } from "./actions";
+import { RateCalendar } from "./rate-calendar";
 
-type SearchParams = Promise<{ saved?: string }>;
+type SearchParams = Promise<{ saved?: string; month?: string }>;
 const input = "min-h-11 w-full rounded-lg border border-neutral-300 bg-white px-3 text-sm tabular-nums focus:border-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-100";
 
 export default async function PricingPage({ searchParams }: { searchParams: SearchParams }) {
@@ -24,6 +25,8 @@ export default async function PricingPage({ searchParams }: { searchParams: Sear
   return <main className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:py-8">
     <div><p className="text-sm font-medium text-blue-700">管理者設定</p><h1 className="mt-1 text-2xl font-semibold tracking-tight text-neutral-950">動的料金管理</h1><p className="mt-2 max-w-3xl text-sm leading-6 text-neutral-500">基本料金と期間限定料金を管理します。保存した料金は公式サイトの空室検索とStripe決済額の計算に反映されます。</p></div>
     {params.saved ? <p role="status" className="mt-5 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">料金設定を保存しました。</p> : null}
+
+    <RateCalendar month={params.month} settings={roomSettings} rates={seasonalRates} />
 
     <section className="mt-7"><div className="mb-4"><h2 className="text-lg font-semibold">基本料金</h2><p className="mt-1 text-sm text-neutral-500">通常期間の曜日別料金と人数設定です。</p></div><div className="grid gap-5 xl:grid-cols-2">{roomSettings.map((row) => <form action={updateBaseRate} key={row.id} className="rounded-xl border border-neutral-200 bg-white p-5 shadow-sm"><input type="hidden" name="property_code" value={row.property_code} /><input type="hidden" name="room_type" value={row.room_type} /><div className="flex items-start justify-between gap-3"><div><p className="font-semibold text-neutral-950">{row.display_name}</p><p className="mt-1 text-xs text-neutral-500">{row.property_code} / {row.room_type}</p></div><label className="flex min-h-11 items-center gap-2 text-sm"><input name="is_active" type="checkbox" defaultChecked={row.is_active} className="h-4 w-4 accent-blue-600" />公開</label></div><div className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-3"><Field label="平日" name="weekday_price" value={row.weekday_price} suffix="円" /><Field label="金曜日" name="friday_price" value={row.friday_price} suffix="円" /><Field label="土曜日" name="saturday_price" value={row.saturday_price} suffix="円" /><Field label="基本人数" name="included_guests" value={row.included_guests} suffix="名" min={1} /><Field label="追加人数料金" name="extra_guest_fee" value={row.extra_guest_fee} suffix="円" /><Field label="最大人数" name="max_guests" value={row.max_guests} suffix="名" min={1} /><Field label="公式サイト在庫上限" name="inventory_cap" value={row.inventory_cap} suffix="室" /></div><div className="mt-5 flex justify-end"><button className="min-h-11 rounded-lg bg-neutral-900 px-5 text-sm font-semibold text-white hover:bg-neutral-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-900">基本料金を保存</button></div></form>)}</div></section>
 

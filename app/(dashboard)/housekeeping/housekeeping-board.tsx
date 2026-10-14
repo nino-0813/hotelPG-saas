@@ -3,17 +3,17 @@ import { useState, useTransition } from "react";
 import { addDays, differenceInCalendarDays, format, parseISO } from "date-fns";
 import { useRouter } from "next/navigation";
 import type { Staff } from "@/lib/types/database";
-import type { CheckInRow, CleaningRow } from "./page";
+import type { CheckInRow, CleaningRow, StayOverRow } from "./page";
 import { updateCleaningTask } from "./actions";
 
-export function HousekeepingBoard({ tasks, checkIns, staff, selectedDate, dateLabel }: { tasks: CleaningRow[]; checkIns: CheckInRow[]; staff: Staff[]; selectedDate: string; dateLabel: string }) {
+export function HousekeepingBoard({ tasks, checkIns, stayOvers, staff, selectedDate, dateLabel }: { tasks: CleaningRow[]; checkIns: CheckInRow[]; stayOvers: StayOverRow[]; staff: Staff[]; selectedDate: string; dateLabel: string }) {
   const router = useRouter();
   const [showDone, setShowDone] = useState(false);
   const checkInByRoom = new Map(checkIns.map((reservation) => [reservation.room_id, reservation]));
   const visibleTasks = tasks.filter((task) => showDone || task.status !== "done" || checkInByRoom.has(task.room_id));
   const taskRoomIds = new Set(visibleTasks.map((task) => task.room_id));
   const checkInOnly = checkIns.filter((reservation) => !taskRoomIds.has(reservation.room_id ?? ""));
-  const rowCount = visibleTasks.length + checkInOnly.length;
+  const rowCount = visibleTasks.length + checkInOnly.length + stayOvers.length;
   const moveDate = (date: string) => router.push(`/housekeeping?date=${date}`);
   const adjacentDate = (days: number) => format(addDays(parseISO(selectedDate), days), "yyyy-MM-dd");
   return <main className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6">
@@ -23,10 +23,10 @@ export function HousekeepingBoard({ tasks, checkIns, staff, selectedDate, dateLa
       <label className="text-xs font-medium text-neutral-600">清掃日<input type="date" value={selectedDate} onChange={(e) => moveDate(e.target.value)} className="ml-2 min-h-11 rounded-lg border border-neutral-300 bg-white px-3 text-sm text-neutral-900" /></label>
       <button type="button" onClick={() => moveDate(new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo" }).format(new Date()))} className="min-h-11 rounded-lg border border-neutral-300 px-4 text-sm font-medium hover:bg-neutral-50">今日</button>
       <button type="button" onClick={() => moveDate(adjacentDate(1))} className="min-h-11 rounded-lg border border-neutral-300 px-4 text-sm font-medium hover:bg-neutral-50" aria-label="翌日の清掃リスト">翌日 →</button>
-      <span className="ml-auto text-sm text-neutral-500">{rowCount}室（チェックアウト {tasks.length}件・チェックイン {checkIns.length}件）</span>
+      <span className="ml-auto text-sm text-neutral-500">{rowCount}室（チェックアウト {tasks.length}件・チェックイン {checkIns.length}件・連泊中 {stayOvers.length}件）</span>
     </div>
     <div className="hidden print:block"><h1 className="text-xl font-bold">HotelPG 清掃リスト</h1><p>{dateLabel}</p></div>
-    <section className="mt-6 space-y-3">{visibleTasks.map((task) => <CleaningCard key={task.id} task={task} checkIn={checkInByRoom.get(task.room_id)} staff={staff} selectedDate={selectedDate} />)}{checkInOnly.map((reservation) => <CheckInOnlyCard key={reservation.id} reservation={reservation} selectedDate={selectedDate} />)}{!rowCount && <p className="rounded-xl border border-dashed p-12 text-center text-sm text-neutral-500">{dateLabel} のチェックアウト・チェックイン予定はありません。</p>}</section>
+    <section className="mt-6 space-y-3">{visibleTasks.map((task) => <CleaningCard key={task.id} task={task} checkIn={checkInByRoom.get(task.room_id)} staff={staff} selectedDate={selectedDate} />)}{checkInOnly.map((reservation) => <CheckInOnlyCard key={reservation.id} reservation={reservation} selectedDate={selectedDate} />)}{stayOvers.map((reservation) => <StayOverCard key={reservation.id} reservation={reservation} selectedDate={selectedDate} />)}{!rowCount && <p className="rounded-xl border border-dashed p-12 text-center text-sm text-neutral-500">{dateLabel} のチェックアウト・チェックイン・連泊中の予定はありません。</p>}</section>
   </main>;
 }
 
@@ -65,5 +65,14 @@ function CheckInOnlyCard({ reservation, selectedDate }: { reservation: CheckInRo
     <div className="space-y-2"><p className="rounded-lg border border-dashed border-neutral-300 px-3 py-2 text-xs text-neutral-500">本日のチェックアウト予定なし</p><CheckInDetails reservation={reservation} selectedDate={selectedDate} /></div>
     <p className="text-xs text-neutral-500">清掃タスクなし</p>
     <div className="hidden print:block">□ 確認</div>
+  </article>;
+}
+
+function StayOverCard({ reservation, selectedDate }: { reservation: StayOverRow; selectedDate: string }) {
+  return <article className="grid gap-3 rounded-xl border border-amber-200 bg-amber-50/40 p-4 shadow-sm sm:grid-cols-[160px_minmax(260px,1fr)_180px_auto] sm:items-center">
+    <div><p className="text-xs text-neutral-500">{reservation.room.property.name}</p><p className="text-xl font-semibold">客室 {reservation.room.room_number}</p></div>
+    <div><div className="flex flex-wrap items-center gap-2"><span className="rounded bg-amber-600 px-2 py-0.5 text-xs font-bold text-white">連泊中</span><p className="text-sm font-semibold text-amber-950">{reservation.guest_name}様・{reservation.guest_count}名</p><StayBadge checkInDate={reservation.check_in_date} checkOutDate={reservation.check_out_date} selectedDate={selectedDate} /></div>{reservation.special_notes && <p className="mt-1 text-xs text-amber-900">注意事項：{reservation.special_notes}</p>}</div>
+    <p className="text-xs text-neutral-600">チェックアウト<br /><strong className="text-sm">{format(parseISO(reservation.check_out_date), "M/d")}</strong></p>
+    <p className="text-xs font-medium text-amber-800">本日の通常清掃なし</p>
   </article>;
 }

@@ -53,6 +53,7 @@ export async function cancelReservation(reservationId: string): Promise<true> {
   console.log("[cancelReservation] cancelled:", id);
   revalidatePath("/reservations");
   revalidatePath("/tasks");
+  revalidatePath("/housekeeping");
   return true;
 }
 
