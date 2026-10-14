@@ -188,7 +188,12 @@ begin
   if new.type <> 'cleaning' or (new.status is not distinct from old.status
     and new.cleaning_requirement is not distinct from old.cleaning_requirement) then return new; end if;
   if new.reservation_id is not null then
-    select * into v_res from public.reservations where id = new.reservation_id for share;
+    -- A task UPDATE already holds the task row lock. Taking a reservation lock
+    -- here reverses reconciliation/RPC's reservation -> task order and deadlocks.
+    -- Read committed reservation state without locking. An overlapping reservation
+    -- writer reconciles the locked task after this statement completes; its final
+    -- cancellation/date/room state controls active work and history is preserved.
+    select * into v_res from public.reservations where id = new.reservation_id;
     if v_res.status in ('cancelled', 'blocked') then raise exception 'Reservation is not active'; end if;
   end if;
   if new.superseded_at is not null then raise exception 'Cleaning is no longer scheduled'; end if;
@@ -207,3 +212,39 @@ end;
 $$;
 create trigger trg_tasks_guard_cleaning_state before update of status, cleaning_requirement on public.tasks
   for each row execute function public.guard_cleaning_work_state();
+
+-- SECURITY INVOKER is deliberate: direct PostgREST callers remain authenticated /
+-- service_role, while nested reconciliation and the scoped RPC run as their owner.
+-- App roles may edit work state, not forge the metadata those guards trust.
+create function public.protect_generated_cleaning_metadata()
+returns trigger language plpgsql set search_path = public as $$
+begin
+  if current_user not in ('authenticated', 'anon', 'service_role') then return new; end if;
+  if TG_OP = 'INSERT' then
+    if new.cleaning_origin is not null or new.cleaning_date is not null or new.superseded_at is not null then
+      raise exception 'Generated cleaning metadata is managed by reservation operations';
+    end if;
+    return new;
+  end if;
+  if new.cleaning_origin is distinct from old.cleaning_origin
+    or new.cleaning_date is distinct from old.cleaning_date
+    or new.superseded_at is distinct from old.superseded_at then
+    raise exception 'Generated cleaning metadata is immutable for app roles';
+  end if;
+  if (old.cleaning_origin is not null or public.current_staff_role() = 'staff') and
+    (new.id is distinct from old.id or new.reservation_id is distinct from old.reservation_id
+      or new.room_id is distinct from old.room_id or new.type is distinct from old.type) then
+    raise exception 'Task identity and property must be changed through reservation operations';
+  end if;
+  if old.cleaning_origin is not null and new.scheduled_for is distinct from old.scheduled_for then
+    raise exception 'Generated cleaning schedule is managed by the reservation';
+  end if;
+  if old.cleaning_origin is not null and new.status is not distinct from old.status
+    and new.completed_at is distinct from old.completed_at then
+    raise exception 'Completion history is managed by task status changes';
+  end if;
+  return new;
+end;
+$$;
+create trigger trg_tasks_protect_generated_metadata before insert or update on public.tasks
+  for each row execute function public.protect_generated_cleaning_metadata();

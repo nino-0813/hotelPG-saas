@@ -5,7 +5,7 @@
 | 検証 | 結果・対象 |
 | --- | --- |
 | Node テスト | 16 / 16 成功。実パーサー・同期・ページ・Server Action・React を使用し、外部 I/O をモック化 |
-| PostgreSQL 17 | 41 項目成功。`--network none`、ポート公開なし、全 35 migration を適用。既存タスク・時刻の無変更も確認 |
+| PostgreSQL 17 | 60 項目成功（基本41、メタデータ保護15、実 authenticated staff の並行トランザクション4）。`--network none`、ポート公開なし、全 35 migration を適用。既存タスク・時刻の無変更も確認 |
 | Chromium | 実 Board を合成データで描画。1280px / 390px。未確認→必要→不要→未確認、再読込保持、開始→未完了、完了→未完了、横スクロールなし、JS エラーなし |
 | ESLint | エラー 0、警告 3（すべて基点にも存在する未使用変数）。追加の lint 失敗なし |
 | TypeScript | `tsc --noEmit` 成功。基点も成功 |
@@ -62,3 +62,15 @@
 - `tests/browser-housekeeping.mjs`
 - `docs/housekeeping-rollout.md`
 - `docs/housekeeping-verification.md`
+
+- `docs/housekeeping-preflight.sql`
+- `docs/housekeeping-production-preflight.md`
+- `tests/housekeeping-concurrency.py`
+- `tests/housekeeping-metadata.sql`
+
+## 本番前レビューの追加検証
+
+旧75c9dcfに対し、予約更新／日別RPCと清掃状態更新の逆順ロックで4ケースの40P01を再現。authenticated staffによる由来削除→未確認清掃開始の回避も再現した。
+修正後は実ロール・RLSを使用した追加19項目で、保護の回避拒否、管理者の手動編集維持、正規RPCとトリガーの動作、競合時の整合と適切な業務エラーを確認。
+本番用の読取り事前確認SQLも隔離DBで実行して構文・出力項目を確認。実本番では接続不能のため未実行。
+`tests/run-housekeeping-db.sh` の起動待ちを最終 postgres PID=1 の ready に変更し、初期化用一時サーバーの終了直前に接続する競合も防止した。

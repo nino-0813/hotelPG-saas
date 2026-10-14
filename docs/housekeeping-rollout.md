@@ -68,6 +68,8 @@ group by reservation_id having count(*) > 1;
 
 ## 導入順と切戻し
 
+追加の権限・競合修正・接続阻害・旧版混在の扱いは `housekeeping-production-preflight.md` を先に参照する。
+
 1. 上記未確定仕様と既存補正計画を確認・承認。
 2. 本番同等のステージングへバックアップ復元した検証環境で RLS / PostgREST / セッション認証を含めて追加 E2E を行う。
 3. 別途承認後、DB migration を先に適用。既存分を使う場合は承認済み分類・整合も保守時間内に実行。新コードは追加カラム・RPC を使うため DB より先に公開しない。

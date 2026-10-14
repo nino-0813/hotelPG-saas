@@ -6,7 +6,7 @@ container="hotelpg-housekeeping-test-$$"
 docker run --name "$container" --network none -e POSTGRES_PASSWORD=isolated-test-only -d postgres:17 >/dev/null
 trap 'docker rm -f "$container" >/dev/null' EXIT
 for attempt in $(seq 1 30); do
-  if docker exec "$container" pg_isready -U postgres >/dev/null 2>&1; then break; fi
+  if docker exec "$container" sh -c '[ "$(head -n 1 "$PGDATA/postmaster.pid" 2>/dev/null)" = 1 ] && pg_isready -U postgres' >/dev/null 2>&1; then break; fi
   sleep 1
 done
 psql_test() { docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 "$@"; }
@@ -32,4 +32,8 @@ SQL
   echo "Applying $migration"
   psql_test < "$migration"
 done
+psql_test < docs/housekeeping-preflight.sql
 psql_test < tests/housekeeping-db.sql
+psql_test < tests/housekeeping-metadata.sql
+
+python3 tests/housekeeping-concurrency.py "$container" "${HOUSEKEEPING_CONCURRENCY_MODE:-}"
