@@ -149,6 +149,7 @@ export function NewReservationForm({
         room_id: String(formData.get("room_id") || roomId || ""),
         guest_name: String(formData.get("guest_name")),
         guest_phone: String(formData.get("guest_phone") || ""),
+        guest_email: String(formData.get("guest_email") || ""),
         guest_count: Number(formData.get("guest_count")) || 1,
         check_in_date: String(formData.get("check_in_date")),
         check_in_time: String(formData.get("check_in_time") || "15:00"),
@@ -273,6 +274,19 @@ export function NewReservationForm({
             />
           </Field>
         </div>
+
+        <Field label="メールアドレス">
+          <input
+            name="guest_email"
+            type="email"
+            autoComplete="email"
+            className={inputCls}
+            placeholder="guest@example.com"
+          />
+          <span className="mt-1 block text-xs text-neutral-500">
+            登録するとチェックイン案内メールを送信できます。
+          </span>
+        </Field>
 
         <div className="grid grid-cols-2 gap-3">
           <Field label="チェックイン日" required>
@@ -1204,6 +1218,7 @@ function EditReservationForm({
           room_id: nextRoomId,
           guest_name: String(formData.get("guest_name")),
           guest_phone: String(formData.get("guest_phone") || ""),
+          guest_email: String(formData.get("guest_email") || ""),
           guest_count: Number(formData.get("guest_count")) || 1,
           check_in_date: checkInDate,
           check_in_time: String(formData.get("check_in_time") || "15:00"),
@@ -1284,6 +1299,20 @@ function EditReservationForm({
             />
           </Field>
         </div>
+
+        <Field label="メールアドレス">
+          <input
+            name="guest_email"
+            type="email"
+            autoComplete="email"
+            defaultValue={reservation.guest_email ?? ""}
+            className={inputCls}
+            placeholder="guest@example.com"
+          />
+          <span className="mt-1 block text-xs text-neutral-500">
+            登録するとチェックイン案内メールを送信できます。
+          </span>
+        </Field>
 
         <div className="grid grid-cols-2 gap-3">
           <Field label="チェックイン日" required>

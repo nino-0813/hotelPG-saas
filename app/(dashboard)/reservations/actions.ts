@@ -13,6 +13,7 @@ export type CreateReservationInput = {
   room_id: string;
   guest_name: string;
   guest_phone?: string;
+  guest_email?: string;
   guest_count: number;
   check_in_date: string;
   check_in_time?: string;
@@ -27,6 +28,11 @@ export type CreateReservationInput = {
 export async function createReservation(input: CreateReservationInput) {
   const supabase = await createClient();
 
+  const guestEmail = input.guest_email?.trim() || null;
+  if (guestEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(guestEmail)) {
+    return { error: "メールアドレスの形式を確認してください。" };
+  }
+
   const { data: blocked } = await supabase.from("room_blocks").select("id").eq("room_id", input.room_id).eq("is_active", true).lt("start_date", input.check_out_date).gte("end_date", input.check_in_date).limit(1);
   if (blocked?.length) return { error: "選択した部屋はこの期間、緊急用としてブロックされています。" };
 
@@ -34,6 +40,7 @@ export async function createReservation(input: CreateReservationInput) {
     room_id: input.room_id,
     guest_name: input.guest_name.trim(),
     guest_phone: input.guest_phone?.trim() || null,
+    guest_email: guestEmail,
     guest_count: input.guest_count,
     check_in_date: input.check_in_date,
     check_in_time: input.check_in_time || "15:00",
@@ -94,6 +101,10 @@ export async function updateReservation(input: UpdateReservationInput) {
   }
   if (input.guest_count !== undefined && input.guest_count < 1) {
     return { error: "人数は1名以上で入力してください。" };
+  }
+  const guestEmail = input.guest_email?.trim();
+  if (input.guest_email !== undefined && guestEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(guestEmail)) {
+    return { error: "メールアドレスの形式を確認してください。" };
   }
 
   const nextRoomId = input.room_id ?? current.room_id;
