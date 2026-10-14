@@ -56,6 +56,7 @@ export default async function RoomsPage() {
     supabase
       .from("tasks")
       .select("*")
+      .is("superseded_at", null).eq("cleaning_requirement", "required")
       .in("status", ["todo", "in_progress"])
       .returns<Task[]>(),
     supabase.from("room_blocks").select("*").eq("is_active", true).gte("end_date", today).order("start_date").returns<RoomBlock[]>(),

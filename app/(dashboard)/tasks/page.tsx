@@ -68,6 +68,7 @@ export default async function TasksPage({
         reservation:reservations(guest_name, check_in_date, check_out_date, payment_method, special_notes, status)
       `,
     )
+    .is("superseded_at", null).eq("cleaning_requirement", "required")
     .gte("scheduled_for", from.toISOString())
     .lte("scheduled_for", to.toISOString())
     .order("scheduled_for", { ascending: true });
@@ -156,17 +157,20 @@ async function fetchCounts(
     supabase
       .from("tasks")
       .select("*", { count: "exact", head: true })
+      .is("superseded_at", null).eq("cleaning_requirement", "required")
       .in("status", ["todo", "in_progress"])
       .lte("scheduled_for", todayEnd.toISOString()),
     supabase
       .from("tasks")
       .select("*", { count: "exact", head: true })
+      .is("superseded_at", null).eq("cleaning_requirement", "required")
       .in("status", ["todo", "in_progress"])
       .gte("scheduled_for", startOfDay(tomorrow).toISOString())
       .lte("scheduled_for", tomorrowEnd.toISOString()),
     supabase
       .from("tasks")
       .select("*", { count: "exact", head: true })
+      .is("superseded_at", null).eq("cleaning_requirement", "required")
       .in("status", ["todo", "in_progress"])
       .lte("scheduled_for", weekEnd.toISOString()),
   ]);

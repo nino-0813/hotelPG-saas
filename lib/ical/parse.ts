@@ -32,6 +32,7 @@ export function parseIcs(icsText: string): ParsedReservation[] {
   const events: ParsedReservation[] = [];
 
   for (const ev of extractVevents(icsText)) {
+    if (ev.status === "CANCELLED") continue;
     const summary = ev.summary;
 
     // OTA(楽天/Airbnb等)は「販売停止・在庫クローズ」を予約と同じ VEVENT で出す。

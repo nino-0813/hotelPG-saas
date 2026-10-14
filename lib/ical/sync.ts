@@ -96,10 +96,15 @@ export async function syncOneCalendar(
   }
 
   // Existing reservations imported from this calendar (so we can detect deletions)
-  const { data: existing } = await supabase
+  const { data: existing, error: existingError } = await supabase
     .from("reservations")
     .select("id, external_uid, status, room_id")
     .eq("external_calendar_id", calendarId);
+
+  if (existingError) {
+    return { calendarId, ok: false, imported: 0, created: 0, updated: 0,
+      cancelled: 0, newBookings: [], error: existingError.message };
+  }
 
   const existingMap = new Map(
     (existing ?? [])
@@ -117,8 +122,11 @@ export async function syncOneCalendar(
   const newBookings: SyncNewBookingSummary[] = [];
   let firstUpsertError: string | null = null;
 
-  for (const ev of parsed) {
+  for (const ev of new Map(parsed.map((event) => [event.uid, event])).values()) {
     const existingRow = existingMap.get(ev.uid);
+    // A retained/reappearing UID must never undo a manual, guest or OTA cancellation.
+    // Reinstatement requires an explicit staff decision (the source is not recorded historically).
+    if (existingRow?.status === "cancelled") continue;
     const existingReservationId = existingRow?.id ?? null;
     const pinnedRoomId = existingRow?.room_id ?? null;
 
@@ -160,7 +168,7 @@ export async function syncOneCalendar(
 
     const payload = {
       // room_id: keep existing assignment, otherwise auto-assign if available
-      room_id: assignedRoomId,
+      ...(!existingRow || !pinnedRoomId ? { room_id: assignedRoomId } : {}),
       external_uid: ev.uid,
       external_source: cal.source,
       external_calendar_id: cal.id,
@@ -172,24 +180,29 @@ export async function syncOneCalendar(
       guest_count: ev.guest_count,
       check_in_date: ev.check_in_date,
       check_out_date: ev.check_out_date,
-      check_in_time: "15:00",
-      check_out_time: "11:00",
+
       payment_method: "online" as const,
       smart_key_code: smartKeyCode,
       special_notes: noteParts || null,
       source: cal.source,
-      status: "confirmed" as const,
+
     };
 
-    const { error: upsertErr } = await supabase
-      .from("reservations")
-      .upsert(payload, { onConflict: "external_uid" });
+    // INSERT and UPDATE must remain distinct: an upsert can apply defaults to an
+    // existing row, or resurrect a booking cancelled while this sync was running.
+    const { error: upsertErr, count } = existingRow
+      ? await supabase.from("reservations").update(payload, { count: "exact" })
+          .eq("id", existingRow.id).eq("external_calendar_id", calendarId)
+          .neq("status", "cancelled")
+      : await supabase.from("reservations").insert({ ...payload,
+          check_in_time: "15:00", check_out_time: "10:00", status: "confirmed" });
 
     if (upsertErr) {
       if (!firstUpsertError) firstUpsertError = upsertErr.message;
       console.error("upsert failed", ev.uid, upsertErr.message);
       continue;
     }
+    if (existingRow && count === 0) continue; // Cancelled concurrently; no update occurred.
     imported++;
     if (existingRow) {
       updated++;
@@ -218,12 +231,13 @@ export async function syncOneCalendar(
     const { error: cancelErr, count } = await supabase
       .from("reservations")
       .update({ status: "cancelled" }, { count: "exact" })
+      .eq("external_calendar_id", calendarId)
       .in("external_uid", missingUids);
     if (!cancelErr) cancelled = count ?? missingUids.length;
+    else firstUpsertError ??= cancelErr.message;
   }
 
-  const upsertAllFailed =
-    parsed.length > 0 && imported === 0 && firstUpsertError !== null;
+  const upsertAllFailed = firstUpsertError !== null;
 
   await supabase
     .from("external_calendars")

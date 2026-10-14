@@ -2,6 +2,7 @@
 
 export type RawVEvent = {
   uid: string;
+  status: string;
   summary: string;
   description: string;
   dtstart: string;
@@ -63,6 +64,7 @@ export function extractVevents(icsText: string): RawVEvent[] {
       if (bag?.uid) {
         events.push({
           uid: bag.uid,
+          status: bag.status ?? "",
           summary: bag.summary ?? "",
           description: bag.description ?? "",
           dtstart: bag.dtstart ?? "",
@@ -79,6 +81,9 @@ export function extractVevents(icsText: string): RawVEvent[] {
 
     const { name, value, params } = parsePropertyLine(line);
     switch (name) {
+      case "STATUS":
+        bag.status = value.trim().toUpperCase();
+        break;
       case "UID":
         bag.uid = value;
         break;
