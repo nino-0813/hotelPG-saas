@@ -416,11 +416,11 @@ function buildCheckInBodyPG2(args: {
   const pg2Meta = (() => {
     const r = (room ?? "").trim().toUpperCase();
     const colorMap: Record<string, string> = {
-      A: "黒",
-      B: "青",
-      C: "オレンジ",
-      D: "グレー",
-      E: "緑",
+      A: "青",
+      B: "灰",
+      C: "緑",
+      D: "黒",
+      E: "オレンジ",
     };
     const floor = r === "A" || r === "B" ? "2階" : r ? "1階" : "◯階";
     const color = colorMap[r] ?? "◯色";
