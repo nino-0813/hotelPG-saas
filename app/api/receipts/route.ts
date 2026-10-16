@@ -55,6 +55,7 @@ function paymentLabel(value: PaymentMethod) {
 
 function accommodationTaxForReservation(
   reservation: Pick<Reservation, "check_in_date" | "check_out_date" | "guest_count">,
+  guestCount = reservation.guest_count,
 ) {
   const [inYear, inMonth, inDay] = reservation.check_in_date.split("-").map(Number);
   const [outYear, outMonth, outDay] = reservation.check_out_date.split("-").map(Number);
@@ -68,9 +69,30 @@ function accommodationTaxForReservation(
   );
   return (
     ACCOMMODATION_TAX_PER_GUEST_PER_NIGHT_JPY *
-    Math.max(1, reservation.guest_count) *
+    Math.max(1, guestCount) *
     nights
   );
+}
+
+type SplitReceiptInput = {
+  recipientName: string;
+  email: string;
+  amount: number;
+};
+
+function parseSplitReceipts(value: unknown): SplitReceiptInput[] | null {
+  if (!Array.isArray(value) || value.length !== 2) return null;
+  const parsed = value.map((entry) => {
+    if (!entry || typeof entry !== "object") return null;
+    const row = entry as Record<string, unknown>;
+    const recipientName = typeof row.recipientName === "string" ? row.recipientName.trim() : "";
+    const email = typeof row.email === "string" ? row.email.trim() : "";
+    const amount = typeof row.amount === "number" ? Math.round(row.amount) : Number(row.amount);
+    if (!recipientName || !Number.isInteger(amount) || amount <= 0) return null;
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return null;
+    return { recipientName, email, amount };
+  });
+  return parsed.every((entry): entry is SplitReceiptInput => entry !== null) ? parsed : null;
 }
 
 export async function GET(req: NextRequest) {
@@ -100,11 +122,15 @@ export async function POST(req: NextRequest) {
     const email = typeof body.email === "string" ? body.email.trim() : "";
     const sendEmail = body.sendEmail === true;
     const amount = typeof body.amount === "number" ? Math.round(body.amount) : Number(body.amount);
+    const splitReceipts = parseSplitReceipts(body.receipts);
 
-    if (!UUID_RE.test(reservationId) || !recipientName || !description || !Number.isInteger(amount) || amount <= 0) {
+    if (!UUID_RE.test(reservationId)) {
+      return NextResponse.json({ error: "予約IDが正しくありません" }, { status: 400 });
+    }
+    if (!splitReceipts && (!recipientName || !description || !Number.isInteger(amount) || amount <= 0)) {
       return NextResponse.json({ error: "宛名・但し書き・1円以上の金額を入力してください" }, { status: 400 });
     }
-    if (sendEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    if (!splitReceipts && sendEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return NextResponse.json({ error: "送信先メールアドレスを確認してください" }, { status: 400 });
     }
 
@@ -117,6 +143,148 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "予約が見つかりません" }, { status: 404 });
     }
     const reservation = reservationRaw as unknown as ReservationWithRoom;
+
+    if (splitReceipts) {
+      if (reservation.guest_count !== 2) {
+        return NextResponse.json(
+          { error: "2名予約の場合のみ、1名ずつの分割領収書を発行できます" },
+          { status: 400 },
+        );
+      }
+      const totalAmount = reservationRevenue(reservation);
+      const splitTotal = splitReceipts.reduce((sum, entry) => sum + entry.amount, 0);
+      if (totalAmount <= 0 || splitTotal !== totalAmount) {
+        return NextResponse.json(
+          { error: `2枚の合計金額を予約総額 ${totalAmount.toLocaleString("ja-JP")}円に合わせてください` },
+          { status: 400 },
+        );
+      }
+      if (sendEmail && splitReceipts.some((entry) => !entry.email)) {
+        return NextResponse.json(
+          { error: "メール送信する場合は、2名分の送信先を入力してください" },
+          { status: 400 },
+        );
+      }
+
+      const { count: issuedCount, error: issuedCountError } = await auth.supabase
+        .from("receipt_documents")
+        .select("id", { count: "exact", head: true })
+        .eq("reservation_id", reservationId)
+        .eq("reissue_number", 0);
+      if (issuedCountError) throw issuedCountError;
+      if ((issuedCount ?? 0) > 0) {
+        return NextResponse.json(
+          { error: "この予約には発行済みの領収書があります。重複発行を避けるため、発行履歴を確認してください" },
+          { status: 409 },
+        );
+      }
+
+      const issuer = getReceiptIssuer();
+      const issuedAt = new Date().toISOString();
+      const accommodationTaxPerGuest = accommodationTaxForReservation(reservation, 1);
+      const snapshots = splitReceipts.map((entry) => {
+        const nonTaxableAmount = Math.min(accommodationTaxPerGuest, entry.amount);
+        const taxableAmount = Math.max(entry.amount - nonTaxableAmount, 0);
+        const taxAmount = Math.floor((taxableAmount * 10) / 110);
+        return {
+          input: entry,
+          snapshot: {
+            receiptNumber: receiptNumber(),
+            reissueNumber: 0,
+            issuedAt,
+            recipientName: entry.recipientName,
+            description: description || "宿泊代として",
+            amount: entry.amount,
+            taxableAmount,
+            taxAmount,
+            nonTaxableAmount,
+            paymentMethod: reservation.payment_method,
+            propertyName: reservation.rooms?.properties?.name ?? null,
+            roomNumber: reservation.rooms?.room_number ?? null,
+            checkInDate: reservation.check_in_date,
+            checkOutDate: reservation.check_out_date,
+            issuerName: issuer.name,
+            facilityName: issuer.facilityName,
+            issuerAddress: issuer.address,
+            facilityAddresses: issuer.facilityAddresses,
+            issuerPhone: issuer.phone,
+            invoiceRegistrationNumber: issuer.invoiceRegistrationNumber,
+          } satisfies ReceiptPdfData,
+        };
+      });
+
+      const rows = snapshots.map(({ input, snapshot }) => ({
+        reservation_id: reservationId,
+        receipt_number: snapshot.receiptNumber,
+        reissue_number: 0,
+        recipient_name: input.recipientName,
+        description: snapshot.description,
+        amount: input.amount,
+        taxable_amount: snapshot.taxableAmount,
+        tax_amount: snapshot.taxAmount,
+        non_taxable_amount: snapshot.nonTaxableAmount,
+        payment_method: reservation.payment_method,
+        guest_name: reservation.guest_name,
+        guest_email: input.email || reservation.guest_email,
+        property_name: snapshot.propertyName,
+        room_number: snapshot.roomNumber,
+        check_in_date: reservation.check_in_date,
+        check_out_date: reservation.check_out_date,
+        issuer_name: issuer.name,
+        issuer_address: issuer.address,
+        issuer_phone: issuer.phone,
+        invoice_registration_number: issuer.invoiceRegistrationNumber,
+        issued_at: issuedAt,
+        issued_by: auth.user.id,
+      }));
+      const { data: storedReceipts, error: insertError } = await auth.supabase
+        .from("receipt_documents")
+        .insert(rows)
+        .select("id, receipt_number, access_token");
+      if (insertError || !storedReceipts || storedReceipts.length !== 2) {
+        throw insertError ?? new Error("分割領収書を保存できませんでした");
+      }
+
+      const stay = `${reservation.check_in_date.replaceAll("-", "/")} - ${reservation.check_out_date.replaceAll("-", "/")}`;
+      const results = [];
+      for (const { input, snapshot } of snapshots) {
+        const stored = storedReceipts.find(
+          (receipt) => receipt.receipt_number === snapshot.receiptNumber,
+        );
+        if (!stored) throw new Error("発行した領収書を確認できませんでした");
+        const downloadUrl = new URL(`/receipt/${stored.access_token}`, req.nextUrl.origin).toString();
+        let emailedAt: string | null = null;
+        let emailError: string | null = null;
+        if (sendEmail) {
+          try {
+            await sendMail(
+              input.email,
+              "【HOTEL PG】領収書発行のご案内",
+              `${input.recipientName} 様\n\nHOTEL PGをご利用いただき、ありがとうございます。\n1名様分の領収書を発行しました。下記の専用URLからPDFをダウンロードしてください。\n\n領収書番号: ${snapshot.receiptNumber}\n宿泊期間: ${stay}\n金額: ${input.amount.toLocaleString("ja-JP")}円\n支払方法: ${paymentLabel(reservation.payment_method)}\n\n領収書ダウンロードURL\n${downloadUrl}\n\n※このURLは領収書の閲覧専用です。第三者への転送はお控えください。\n\nHOTEL PG`,
+            );
+            emailedAt = new Date().toISOString();
+            await auth.supabase
+              .from("receipt_documents")
+              .update({ emailed_at: emailedAt })
+              .eq("id", stored.id);
+          } catch (mailError) {
+            console.error("[split receipts] email delivery failed", mailError);
+            emailError = "領収書は発行されましたが、メール送信に失敗しました。";
+          }
+        }
+        results.push({
+          receipt_number: snapshot.receiptNumber,
+          downloadUrl,
+          emailed_at: emailedAt,
+          email_error: emailError,
+          stored: true,
+          recipient_name: input.recipientName,
+          amount: input.amount,
+        });
+      }
+      return NextResponse.json({ success: true, receipts: results });
+    }
+
     const { count } = await auth.supabase
       .from("receipt_documents")
       .select("id", { count: "exact", head: true })

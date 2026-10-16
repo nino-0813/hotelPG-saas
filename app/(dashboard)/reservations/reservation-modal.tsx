@@ -1061,6 +1061,14 @@ type ReceiptIssueResult = {
   emailed_at: string | null;
   email_error: string | null;
   stored: boolean;
+  recipient_name?: string;
+  amount?: number;
+};
+
+type SplitReceiptEntry = {
+  recipientName: string;
+  email: string;
+  amount: string;
 };
 
 function ReceiptDialog({
@@ -1074,6 +1082,10 @@ function ReceiptDialog({
   roomNumber: string | null;
   onClose: () => void;
 }) {
+  const reservationAmount = reservationRevenue(reservation);
+  const firstHalf = Math.floor(reservationAmount / 2);
+  const secondHalf = reservationAmount - firstHalf;
+  const [receiptMode, setReceiptMode] = useState<"single" | "split">("single");
   const [recipientName, setRecipientName] = useState(reservation.guest_name);
   const [description, setDescription] = useState("宿泊代として");
   const [amount, setAmount] = useState(String(reservationRevenue(reservation) || ""));
@@ -1081,6 +1093,11 @@ function ReceiptDialog({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ReceiptIssueResult | null>(null);
+  const [splitResults, setSplitResults] = useState<ReceiptIssueResult[] | null>(null);
+  const [splitEntries, setSplitEntries] = useState<SplitReceiptEntry[]>([
+    { recipientName: reservation.guest_name, email: reservation.guest_email ?? "", amount: String(firstHalf || "") },
+    { recipientName: "", email: reservation.guest_email ?? "", amount: String(secondHalf || "") },
+  ]);
   const [copied, setCopied] = useState(false);
 
   const issue = async (sendEmail: boolean) => {
@@ -1118,6 +1135,55 @@ function ReceiptDialog({
     }
   };
 
+  const updateSplitEntry = (
+    index: number,
+    field: keyof SplitReceiptEntry,
+    value: string,
+  ) => {
+    setSplitEntries((entries) =>
+      entries.map((entry, entryIndex) =>
+        entryIndex === index ? { ...entry, [field]: value } : entry,
+      ),
+    );
+  };
+
+  const issueSplit = async (sendEmail: boolean) => {
+    setPending(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/receipts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          reservationId: reservation.id,
+          description,
+          sendEmail,
+          receipts: splitEntries.map((entry) => ({
+            recipientName: entry.recipientName,
+            email: entry.email,
+            amount: Number(entry.amount),
+          })),
+        }),
+      });
+      const json = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        receipts?: ReceiptIssueResult[];
+      };
+      if (!response.ok || !json.receipts) {
+        setError(json.error ?? "分割領収書の発行に失敗しました");
+        return;
+      }
+      setSplitResults(json.receipts);
+    } catch (e) {
+      console.error("[split receipt issue]", e);
+      setError(
+        "通信が切断されました。発行済みの可能性があるため、再発行する前に発行履歴を確認してください。",
+      );
+    } finally {
+      setPending(false);
+    }
+  };
+
   const copyUrl = async () => {
     if (!result) return;
     await navigator.clipboard.writeText(result.downloadUrl);
@@ -1138,7 +1204,7 @@ function ReceiptDialog({
       <div className="h-full w-full overflow-auto bg-white shadow-2xl sm:h-auto sm:max-h-[92dvh] sm:max-w-xl sm:rounded-xl">
         <div className="border-b border-neutral-200 px-4 py-4 sm:px-6">
           <h2 id="receipt-dialog-title" className="text-lg font-semibold text-neutral-950">
-            {result ? "領収書を発行しました" : "領収書を発行"}
+            {result || splitResults ? "領収書を発行しました" : "領収書を発行"}
           </h2>
           <p className="mt-1 text-sm text-neutral-600">
             {propertyName && roomNumber ? `${propertyName} / ${roomNumber}  ` : ""}
@@ -1146,7 +1212,36 @@ function ReceiptDialog({
           </p>
         </div>
 
-        {result ? (
+        {splitResults ? (
+          <div className="space-y-4 px-4 py-5 sm:px-6">
+            <p className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+              1名様分ずつ、2枚の領収書を発行しました。
+            </p>
+            {splitResults.map((splitResult) => (
+              <div key={splitResult.receipt_number} className="rounded-lg border border-neutral-200 p-4">
+                <div className="font-semibold text-neutral-950">
+                  {splitResult.recipient_name} 様
+                </div>
+                <div className="mt-1 text-sm text-neutral-600">
+                  {splitResult.amount?.toLocaleString("ja-JP")}円・{splitResult.receipt_number}
+                </div>
+                {splitResult.email_error ? (
+                  <p className="mt-2 text-sm text-amber-700">{splitResult.email_error}</p>
+                ) : splitResult.emailed_at ? (
+                  <p className="mt-2 text-sm text-emerald-700">メール送信済み</p>
+                ) : null}
+                <a
+                  href={splitResult.downloadUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-3 inline-block rounded-md bg-neutral-900 px-3 py-2 text-sm font-medium text-white hover:bg-neutral-800"
+                >
+                  PDFを確認
+                </a>
+              </div>
+            ))}
+          </div>
+        ) : result ? (
           <div className="space-y-4 px-4 py-5 sm:px-6">
             <div className={clsx("rounded-lg border p-4", result.email_error ? "border-amber-200 bg-amber-50" : "border-emerald-200 bg-emerald-50")}>
               <div className={clsx("text-sm font-semibold", result.email_error ? "text-amber-950" : "text-emerald-950")}>{result.receipt_number}</div>
@@ -1182,14 +1277,28 @@ function ReceiptDialog({
           </div>
         ) : (
           <div className="space-y-4 px-4 py-5 sm:px-6">
-            <label className="block text-sm font-medium text-neutral-800">
-              宛名 <span className="text-red-600">*</span>
-              <input
-                value={recipientName}
-                onChange={(event) => setRecipientName(event.target.value)}
-                className="mt-1.5 w-full rounded-md border border-neutral-300 px-3 py-2.5 font-normal shadow-sm focus:border-neutral-500 focus:outline-none focus:ring-1 focus:ring-neutral-400"
-              />
-            </label>
+            <div className="inline-flex rounded-lg border border-neutral-300 bg-neutral-100 p-1" role="group" aria-label="領収書の発行方法">
+              <button
+                type="button"
+                aria-pressed={receiptMode === "single"}
+                onClick={() => setReceiptMode("single")}
+                className={clsx("rounded-md px-3 py-2 text-sm font-medium", receiptMode === "single" ? "bg-white text-neutral-950 shadow-sm" : "text-neutral-600")}
+              >
+                通常発行
+              </button>
+              <button
+                type="button"
+                aria-pressed={receiptMode === "split"}
+                disabled={reservation.guest_count !== 2}
+                onClick={() => setReceiptMode("split")}
+                className={clsx("rounded-md px-3 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-40", receiptMode === "split" ? "bg-white text-neutral-950 shadow-sm" : "text-neutral-600")}
+              >
+                2名分を分割
+              </button>
+            </div>
+            {reservation.guest_count !== 2 ? (
+              <p className="text-xs text-neutral-500">分割発行は2名予約の場合に利用できます。</p>
+            ) : null}
             <label className="block text-sm font-medium text-neutral-800">
               但し書き <span className="text-red-600">*</span>
               <input
@@ -1198,30 +1307,91 @@ function ReceiptDialog({
                 className="mt-1.5 w-full rounded-md border border-neutral-300 px-3 py-2.5 font-normal shadow-sm focus:border-neutral-500 focus:outline-none focus:ring-1 focus:ring-neutral-400"
               />
             </label>
-            <label className="block text-sm font-medium text-neutral-800">
-              金額（税込） <span className="text-red-600">*</span>
-              <div className="relative mt-1.5">
-                <span className="pointer-events-none absolute left-3 top-2.5 text-neutral-500">¥</span>
-                <input
-                  type="number"
-                  min="1"
-                  step="1"
-                  value={amount}
-                  onChange={(event) => setAmount(event.target.value)}
-                  className="w-full rounded-md border border-neutral-300 py-2.5 pl-7 pr-3 font-normal shadow-sm focus:border-neutral-500 focus:outline-none focus:ring-1 focus:ring-neutral-400"
-                />
+            {receiptMode === "single" ? (
+              <>
+                <label className="block text-sm font-medium text-neutral-800">
+                  宛名 <span className="text-red-600">*</span>
+                  <input
+                    value={recipientName}
+                    onChange={(event) => setRecipientName(event.target.value)}
+                    className="mt-1.5 w-full rounded-md border border-neutral-300 px-3 py-2.5 font-normal shadow-sm focus:border-neutral-500 focus:outline-none focus:ring-1 focus:ring-neutral-400"
+                  />
+                </label>
+                <label className="block text-sm font-medium text-neutral-800">
+                  金額（税込） <span className="text-red-600">*</span>
+                  <div className="relative mt-1.5">
+                    <span className="pointer-events-none absolute left-3 top-2.5 text-neutral-500">¥</span>
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={amount}
+                      onChange={(event) => setAmount(event.target.value)}
+                      className="w-full rounded-md border border-neutral-300 py-2.5 pl-7 pr-3 font-normal shadow-sm focus:border-neutral-500 focus:outline-none focus:ring-1 focus:ring-neutral-400"
+                    />
+                  </div>
+                </label>
+                <label className="block text-sm font-medium text-neutral-800">
+                  送信先メール
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    placeholder="発行のみの場合は空欄でも可"
+                    className="mt-1.5 w-full rounded-md border border-neutral-300 px-3 py-2.5 font-normal shadow-sm focus:border-neutral-500 focus:outline-none focus:ring-1 focus:ring-neutral-400"
+                  />
+                </label>
+              </>
+            ) : (
+              <div className="space-y-3">
+                {splitEntries.map((entry, index) => (
+                  <fieldset key={index} className="rounded-lg border border-neutral-200 p-4">
+                    <legend className="px-1 text-sm font-semibold text-neutral-950">{index + 1}人目</legend>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <label className="text-sm font-medium text-neutral-800 sm:col-span-2">
+                        宛名 <span className="text-red-600">*</span>
+                        <input
+                          value={entry.recipientName}
+                          onChange={(event) => updateSplitEntry(index, "recipientName", event.target.value)}
+                          className="mt-1.5 w-full rounded-md border border-neutral-300 px-3 py-2.5 font-normal shadow-sm focus:border-neutral-500 focus:outline-none focus:ring-1 focus:ring-neutral-400"
+                        />
+                      </label>
+                      <label className="text-sm font-medium text-neutral-800">
+                        金額（税込） <span className="text-red-600">*</span>
+                        <div className="relative mt-1.5">
+                          <span className="pointer-events-none absolute left-3 top-2.5 text-neutral-500">¥</span>
+                          <input
+                            type="number"
+                            min="1"
+                            step="1"
+                            value={entry.amount}
+                            onChange={(event) => updateSplitEntry(index, "amount", event.target.value)}
+                            className="w-full rounded-md border border-neutral-300 py-2.5 pl-7 pr-3 font-normal shadow-sm focus:border-neutral-500 focus:outline-none focus:ring-1 focus:ring-neutral-400"
+                          />
+                        </div>
+                      </label>
+                      <label className="text-sm font-medium text-neutral-800">
+                        送信先メール
+                        <input
+                          type="email"
+                          value={entry.email}
+                          onChange={(event) => updateSplitEntry(index, "email", event.target.value)}
+                          placeholder="発行のみの場合は空欄でも可"
+                          className="mt-1.5 w-full rounded-md border border-neutral-300 px-3 py-2.5 font-normal shadow-sm focus:border-neutral-500 focus:outline-none focus:ring-1 focus:ring-neutral-400"
+                        />
+                      </label>
+                    </div>
+                  </fieldset>
+                ))}
+                <div className="flex justify-between rounded-md bg-neutral-100 px-3 py-2 text-sm">
+                  <span>2枚の合計</span>
+                  <span className={clsx("font-semibold", splitEntries.reduce((sum, entry) => sum + Number(entry.amount || 0), 0) === reservationAmount ? "text-emerald-700" : "text-red-700")}>
+                    {splitEntries.reduce((sum, entry) => sum + Number(entry.amount || 0), 0).toLocaleString("ja-JP")}円 / 予約総額 {reservationAmount.toLocaleString("ja-JP")}円
+                  </span>
+                </div>
+                <p className="text-xs leading-relaxed text-neutral-500">各領収書には1名分の宿泊税（1泊200円）が表示されます。</p>
               </div>
-            </label>
-            <label className="block text-sm font-medium text-neutral-800">
-              送信先メール
-              <input
-                type="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                placeholder="発行のみの場合は空欄でも可"
-                className="mt-1.5 w-full rounded-md border border-neutral-300 px-3 py-2.5 font-normal shadow-sm focus:border-neutral-500 focus:outline-none focus:ring-1 focus:ring-neutral-400"
-              />
-            </label>
+            )}
             <p className="rounded-md bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-900">
               発行後の内容は変更されません。訂正が必要な場合は、正しい内容で再発行してください。
             </p>
@@ -1231,25 +1401,39 @@ function ReceiptDialog({
 
         <div className="sticky bottom-0 flex flex-wrap justify-end gap-2 border-t border-neutral-200 bg-neutral-50 px-4 py-4 sm:px-6">
           <button type="button" onClick={onClose} disabled={pending} className={btnSecondary}>
-            {result ? "閉じる" : "キャンセル"}
+            {result || splitResults ? "閉じる" : "キャンセル"}
           </button>
-          {!result ? (
+          {!result && !splitResults ? (
             <>
               <button
                 type="button"
-                onClick={() => issue(false)}
-                disabled={pending || !recipientName.trim() || !description.trim() || Number(amount) <= 0}
+                onClick={() => receiptMode === "split" ? issueSplit(false) : issue(false)}
+                disabled={
+                  pending ||
+                  !description.trim() ||
+                  (receiptMode === "single"
+                    ? !recipientName.trim() || Number(amount) <= 0
+                    : splitEntries.some((entry) => !entry.recipientName.trim() || Number(entry.amount) <= 0) ||
+                      splitEntries.reduce((sum, entry) => sum + Number(entry.amount || 0), 0) !== reservationAmount)
+                }
                 className={btnSecondary}
               >
-                {pending ? "発行中..." : "発行のみ"}
+                {pending ? "発行中..." : receiptMode === "split" ? "2枚を発行" : "発行のみ"}
               </button>
               <button
                 type="button"
-                onClick={() => issue(true)}
-                disabled={pending || !recipientName.trim() || !description.trim() || Number(amount) <= 0 || !email.trim()}
+                onClick={() => receiptMode === "split" ? issueSplit(true) : issue(true)}
+                disabled={
+                  pending ||
+                  !description.trim() ||
+                  (receiptMode === "single"
+                    ? !recipientName.trim() || Number(amount) <= 0 || !email.trim()
+                    : splitEntries.some((entry) => !entry.recipientName.trim() || Number(entry.amount) <= 0 || !entry.email.trim()) ||
+                      splitEntries.reduce((sum, entry) => sum + Number(entry.amount || 0), 0) !== reservationAmount)
+                }
                 className="rounded-md bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {pending ? "発行・送信中..." : "発行してメール送信"}
+                {pending ? "発行・送信中..." : receiptMode === "split" ? "2枚を発行してメール送信" : "発行してメール送信"}
               </button>
             </>
           ) : null}
