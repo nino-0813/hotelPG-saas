@@ -21,6 +21,7 @@ import {
   syncExternalCalendars,
   updateReservation,
   type GuestEmailDraft,
+  type GuestEmailLanguage,
 } from "./actions";
 import { cancelReservation } from "@/app/actions/cancelReservation";
 import { CancellationNotice } from "@/app/reservation/cancel/cancellation-notice";
@@ -558,6 +559,19 @@ function ReservationDetail({
     });
   };
 
+  const handleEmailLanguageChange = (language: GuestEmailLanguage) => {
+    if (!emailDraft || emailDraft.mailKind !== "check_in") return;
+    startDraft(async () => {
+      setError(null);
+      const res = await getCheckInEmailDraft(reservation.id, language);
+      if (res?.error) {
+        setError(res.error);
+      } else if (res?.draft) {
+        setEmailDraft({ ...res.draft, to: emailDraft.to });
+      }
+    });
+  };
+
   const handleConfirmSend = () => {
     startSend(async () => {
       setError(null);
@@ -690,6 +704,36 @@ function ReservationDetail({
               </div>
             </div>
             <div className="space-y-3 px-4 py-4 text-sm sm:px-6 sm:py-5">
+              {emailDraft.mailKind === "check_in" ? (
+                <div className="grid gap-1.5 sm:grid-cols-[100px_1fr] sm:items-start sm:gap-3">
+                  <div className="text-xs font-medium text-neutral-500 sm:pt-2">
+                    言語
+                  </div>
+                  <div
+                    className="inline-flex w-fit rounded-md border border-neutral-300 bg-neutral-100 p-1"
+                    role="group"
+                    aria-label="メールの言語"
+                  >
+                    {(["ja", "en"] as const).map((language) => (
+                      <button
+                        key={language}
+                        type="button"
+                        aria-pressed={emailDraft.language === language}
+                        onClick={() => handleEmailLanguageChange(language)}
+                        disabled={draftPending || sending}
+                        className={clsx(
+                          "min-h-9 rounded px-3 text-xs font-medium transition-colors disabled:opacity-50",
+                          emailDraft.language === language
+                            ? "bg-white text-neutral-950 shadow-sm"
+                            : "text-neutral-600 hover:text-neutral-950",
+                        )}
+                      >
+                        {language === "ja" ? "日本語" : "English"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
               <div className="grid gap-1.5 sm:grid-cols-[100px_1fr] sm:items-start sm:gap-3">
                 <div className="text-xs font-medium text-neutral-500 sm:pt-2">
                   宛先
@@ -710,12 +754,40 @@ function ReservationDetail({
                   />
                 </div>
               </div>
-              <Row label="件名">{emailDraft.subject}</Row>
-              <Row label="本文">
-                <pre className="whitespace-pre-wrap rounded-md border border-neutral-200 bg-neutral-50 p-3 text-[12px] leading-relaxed">
-                  {emailDraft.body}
-                </pre>
-              </Row>
+              <div className="grid gap-1.5 sm:grid-cols-[100px_1fr] sm:items-start sm:gap-3">
+                <label htmlFor="guest-mail-subject" className="text-xs font-medium text-neutral-500 sm:pt-2">
+                  件名
+                </label>
+                <input
+                  id="guest-mail-subject"
+                  type="text"
+                  value={emailDraft.subject}
+                  onChange={(e) => {
+                    setError(null);
+                    setEmailDraft((draft) =>
+                      draft ? { ...draft, subject: e.target.value } : null,
+                    );
+                  }}
+                  className="w-full rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 shadow-sm focus:border-neutral-500 focus:outline-none focus:ring-1 focus:ring-neutral-400"
+                />
+              </div>
+              <div className="grid gap-1.5 sm:grid-cols-[100px_1fr] sm:items-start sm:gap-3">
+                <label htmlFor="guest-mail-body" className="text-xs font-medium text-neutral-500 sm:pt-2">
+                  本文
+                </label>
+                <textarea
+                  id="guest-mail-body"
+                  value={emailDraft.body}
+                  onChange={(e) => {
+                    setError(null);
+                    setEmailDraft((draft) =>
+                      draft ? { ...draft, body: e.target.value } : null,
+                    );
+                  }}
+                  rows={20}
+                  className="w-full resize-y rounded-md border border-neutral-300 bg-white px-3 py-2 font-mono text-[12px] leading-relaxed text-neutral-900 shadow-sm focus:border-neutral-500 focus:outline-none focus:ring-1 focus:ring-neutral-400"
+                />
+              </div>
               {error ? (
                 <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
                   {error}
@@ -734,7 +806,13 @@ function ReservationDetail({
               <button
                 type="button"
                 onClick={handleConfirmSend}
-                disabled={sending || !emailDraft.to.trim()}
+                disabled={
+                  sending ||
+                  draftPending ||
+                  !emailDraft.to.trim() ||
+                  !emailDraft.subject.trim() ||
+                  !emailDraft.body.trim()
+                }
                 className="rounded-md bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-neutral-800 disabled:opacity-50"
               >
                 {sending ? "送信中..." : "送信"}

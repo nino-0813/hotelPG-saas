@@ -345,6 +345,29 @@ function templateFooterContacts() {
   ].join("\n");
 }
 
+function templateFooterContactsEn() {
+  return [
+    "",
+    "If you have any questions or need assistance, please contact us by phone or message.",
+    "Telephone support is available until 6:00 PM.",
+    "",
+    "HOTEL PG I",
+    "Address: 1896-17 Habu-cho, Innoshima, Onomichi, Hiroshima",
+    "Phone: 070-8328-9154",
+    "Check-in: 3:00 PM–6:00 PM / Check-out: by 10:00 AM",
+    "",
+    "HOTEL PG II",
+    "Address: 1896-8 Habu-cho, Innoshima, Onomichi, Hiroshima",
+    "Phone: 070-8328-9154",
+    "Check-in: 3:00 PM–6:00 PM / Check-out: by 10:00 AM",
+    "",
+    "HOTEL PG III",
+    "Address: 1747-5 Habu-cho, Innoshima, Onomichi, Hiroshima",
+    "Phone: 070-8328-9154",
+    "Check-in: 3:00 PM–6:00 PM / Check-out: by 10:00 AM",
+  ].join("\n");
+}
+
 /** HOTEL PG I エントランス共用ロック（部屋キーとは別） */
 const PG1_ENTRANCE_UNLOCK = "4228＊";
 
@@ -469,12 +492,123 @@ function buildCheckInBodyPG2(args: {
   ].join("\n");
 }
 
+function buildCheckInBodyPG1En(args: {
+  guestName: string;
+  checkInDate: string;
+  roomNumber: string | null;
+  smartKeyCode: string | null;
+}) {
+  const room = args.roomNumber ?? "—";
+  const roomKey = args.smartKeyCode ? `${args.smartKeyCode}*` : "—";
+  const dateYmd = args.checkInDate.replace(/-/g, "/");
+
+  return [
+    "HOTEL PG I – Check-in Information",
+    "",
+    `Dear ${args.guestName},`,
+    "",
+    "Thank you for choosing HOTEL PG I.",
+    `This is your check-in information for ${dateYmd}.`,
+    "",
+    "HOTEL PG does not have a front desk or resident staff. Please use self check-in between 3:00 PM and 6:00 PM.",
+    "",
+    "■ Hotel entrance",
+    "1. Place your hand over the keypad.",
+    "2. Press the two numbers displayed on the keypad.",
+    `3. Enter the unlock code: ${PG1_ENTRANCE_UNLOCK.replace("＊", "*")}`,
+    "",
+    "■ Important",
+    "Please remove your shoes inside the building and use the slippers provided at the shoe cabinet.",
+    "",
+    "■ Your room",
+    `Your room is 【${room}】 upstairs.`,
+    "Unlock the room door using the same keypad procedure.",
+    `Room code: PG I 【${room}】 ${roomKey}`,
+    "",
+    "■ Parking",
+    "Please let us know your vehicle type in advance so that we can arrange a parking space.",
+    "",
+    "■ Bicycles",
+    "Bicycles may be parked in any available parking space on the hotel grounds.",
+    "",
+    "■ Breakfast (optional)",
+    "Breakfast is served at Obanzai Ageha Shokudo next to the hotel from 8:00 AM to 10:00 AM.",
+    "Western breakfast: Monday, Wednesday and Friday",
+    "Japanese breakfast: Tuesday, Thursday, Saturday and Sunday",
+    "Price: JPY 880 (tax included)",
+    templateFooterContactsEn(),
+  ].join("\n");
+}
+
+function buildCheckInBodyPG2En(args: {
+  guestName: string;
+  checkInDate: string;
+  roomNumber: string | null;
+  smartKeyCode: string | null;
+}) {
+  const room = args.roomNumber ?? "—";
+  const key = args.smartKeyCode ?? "—";
+  const dateYmd = args.checkInDate.replace(/-/g, "/");
+  const normalizedRoom = room.trim().toUpperCase();
+  const colorMap: Record<string, string> = {
+    A: "blue",
+    B: "gray",
+    C: "green",
+    D: "black",
+    E: "orange",
+  };
+  const floor = normalizedRoom === "A" || normalizedRoom === "B" ? "2nd floor" : "1st floor";
+  const color = colorMap[normalizedRoom] ?? "designated";
+
+  return [
+    "HOTEL PG II – Check-in Information",
+    "",
+    `Dear ${args.guestName},`,
+    "",
+    "Thank you for choosing HOTEL PG II.",
+    `This is your check-in information for ${dateYmd}.`,
+    "",
+    "HOTEL PG does not have a front desk or resident staff. Please use self check-in between 3:00 PM and 6:00 PM.",
+    "",
+    "■ Check-in",
+    "Enter HOTEL PG II through the first entrance on the ground floor.",
+    "There are five key boxes attached to the stair railing in the entrance area.",
+    `Your room key is in the ${color} key box.`,
+    `Key box code: ${key}`,
+    `Room: HOTEL PG II, ${floor}, 【${room}】`,
+    "Please remove your shoes before going upstairs.",
+    "",
+    "■ Check-out",
+    "Return the key to the same key box by 10:00 AM.",
+    "",
+    "■ Parking",
+    "Please let us know your vehicle type in advance so that we can arrange a parking space.",
+    "",
+    "■ Bicycles",
+    "Bicycles may be parked in any available parking space on the hotel grounds.",
+    "",
+    "■ Breakfast (optional)",
+    "Breakfast is served at Obanzai Ageha Shokudo next to the hotel from 8:00 AM to 10:00 AM.",
+    "Western breakfast: Monday, Wednesday and Friday",
+    "Japanese breakfast: Tuesday, Thursday, Saturday and Sunday",
+    "Price: JPY 880 (tax included)",
+    templateFooterContactsEn(),
+  ].join("\n");
+}
+
+export type GuestEmailLanguage = "ja" | "en";
+
+function detectGuestEmailLanguage(guestName: string): GuestEmailLanguage {
+  return /[\u3040-\u30ff\u3400-\u9fff]/u.test(guestName) ? "ja" : "en";
+}
+
 export type GuestEmailDraft = {
   to: string;
   subject: string;
   body: string;
   from: string;
   mailKind: "check_in" | "reservation_confirmed";
+  language: GuestEmailLanguage;
 };
 
 function splitReservationRoomJoin(r: {
@@ -529,12 +663,14 @@ async function buildReservationConfirmedEmailDraft(
       body: built.body,
       from,
       mailKind: "reservation_confirmed",
+      language: "ja",
     },
   };
 }
 
 async function buildCheckInEmailDraft(
   reservationId: string,
+  requestedLanguage?: GuestEmailLanguage,
 ): Promise<{ draft?: GuestEmailDraft; error?: string }> {
   const supabase = await createClient();
   const { data: r, error } = await supabase
@@ -550,22 +686,26 @@ async function buildCheckInEmailDraft(
 
   const from = process.env.GMAIL_SENDER_EMAIL || "me";
   const { propCode, roomNumber } = splitReservationRoomJoin(r);
-  const subject = `【${propertyLabelFromCode(propCode)}】チェックインのご案内`;
+  const language = requestedLanguage ?? detectGuestEmailLanguage(r.guest_name);
+  const subject =
+    language === "en"
+      ? `【${propertyLabelFromCode(propCode)}】Check-in Information`
+      : `【${propertyLabelFromCode(propCode)}】チェックインのご案内`;
 
+  const templateArgs = {
+    guestName: r.guest_name,
+    checkInDate: r.check_in_date,
+    roomNumber,
+    smartKeyCode: r.smart_key_code,
+  };
   const body =
-    propCode === "PG2"
-      ? buildCheckInBodyPG2({
-          guestName: r.guest_name,
-          checkInDate: r.check_in_date,
-          roomNumber,
-          smartKeyCode: r.smart_key_code,
-        })
-      : buildCheckInBodyPG1({
-          guestName: r.guest_name,
-          checkInDate: r.check_in_date,
-          roomNumber,
-          smartKeyCode: r.smart_key_code,
-        });
+    language === "en"
+      ? propCode === "PG2"
+        ? buildCheckInBodyPG2En(templateArgs)
+        : buildCheckInBodyPG1En(templateArgs)
+      : propCode === "PG2"
+        ? buildCheckInBodyPG2(templateArgs)
+        : buildCheckInBodyPG1(templateArgs);
 
   return {
     draft: {
@@ -574,12 +714,16 @@ async function buildCheckInEmailDraft(
       body,
       from,
       mailKind: "check_in",
+      language,
     },
   };
 }
 
-export async function getCheckInEmailDraft(reservationId: string) {
-  return await buildCheckInEmailDraft(reservationId);
+export async function getCheckInEmailDraft(
+  reservationId: string,
+  language?: GuestEmailLanguage,
+) {
+  return await buildCheckInEmailDraft(reservationId, language);
 }
 
 export async function getReservationConfirmedEmailDraft(
