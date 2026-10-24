@@ -95,16 +95,26 @@ export async function syncOneCalendar(
     };
   }
 
-  // Existing reservations imported from this calendar (so we can detect deletions)
+  // Existing reservations imported from this calendar (so we can detect deletions).
+  // Keep the stay dates: OTA feeds commonly remove historical events after a
+  // retention window, and a missing past event must not be treated as a guest
+  // cancellation.
   const { data: existing } = await supabase
     .from("reservations")
-    .select("id, external_uid, status, room_id")
+    .select("id, external_uid, status, room_id, check_in_date, check_out_date")
     .eq("external_calendar_id", calendarId);
 
   const existingMap = new Map(
     (existing ?? [])
       .filter(
-        (r): r is { id: string; external_uid: string; status: string; room_id: string | null } =>
+        (r): r is {
+          id: string;
+          external_uid: string;
+          status: string;
+          room_id: string | null;
+          check_in_date: string;
+          check_out_date: string;
+        } =>
           Boolean(r.external_uid),
       )
       .map((r) => [r.external_uid, r]),
@@ -158,6 +168,11 @@ export async function syncOneCalendar(
       .filter(Boolean)
       .join("\n");
 
+    const preservedStayStatus =
+      existingRow?.status === "checked_in" || existingRow?.status === "checked_out"
+        ? existingRow.status
+        : "confirmed";
+
     const payload = {
       // room_id: keep existing assignment, otherwise auto-assign if available
       room_id: assignedRoomId,
@@ -178,7 +193,9 @@ export async function syncOneCalendar(
       smart_key_code: smartKeyCode,
       special_notes: noteParts || null,
       source: cal.source,
-      status: "confirmed" as const,
+      // A feed refresh must not move an in-house or completed stay backwards
+      // to "confirmed" just because the event is still present in iCal.
+      status: preservedStayStatus,
     };
 
     const { error: upsertErr } = await supabase
@@ -205,21 +222,49 @@ export async function syncOneCalendar(
     }
   }
 
-  // Mark missing reservations as cancelled
-  const missingUids: string[] = [];
+  // Mark only future, not-yet-arrived reservations as cancelled when they are
+  // removed from the OTA feed. Past events routinely disappear from iCal due
+  // to the provider's retention window and must remain as historical records.
+  const today = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+  const missingReservationIds: string[] = [];
   for (const [uid, row] of existingMap) {
-    if (!incomingUids.has(uid) && row.status !== "cancelled") {
-      missingUids.push(uid);
+    if (
+      !incomingUids.has(uid) &&
+      row.status === "confirmed" &&
+      row.check_in_date >= today
+    ) {
+      missingReservationIds.push(row.id);
     }
   }
 
   let cancelled = 0;
-  if (missingUids.length > 0) {
-    const { error: cancelErr, count } = await supabase
+  if (missingReservationIds.length > 0) {
+    const { data: cancelledRows, error: cancelErr, count } = await supabase
       .from("reservations")
       .update({ status: "cancelled" }, { count: "exact" })
-      .in("external_uid", missingUids);
-    if (!cancelErr) cancelled = count ?? missingUids.length;
+      .in("id", missingReservationIds)
+      .select("id");
+    if (!cancelErr) {
+      cancelled = count ?? cancelledRows?.length ?? missingReservationIds.length;
+      if (cancelledRows && cancelledRows.length > 0) {
+        const { error: logError } = await supabase
+          .from("reservation_logs")
+          .insert(
+            cancelledRows.map((row) => ({
+              reservation_id: row.id,
+              action: "cancelled_external_sync",
+            })),
+          );
+        if (logError) {
+          console.error("external cancellation log failed", logError.message);
+        }
+      }
+    }
   }
 
   const upsertAllFailed =
