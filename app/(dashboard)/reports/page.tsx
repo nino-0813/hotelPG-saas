@@ -3,9 +3,10 @@ import { redirect } from "next/navigation";
 import { getCachedSupabaseAuth } from "@/lib/supabase/server";
 import type { Property, Reservation, Room, RoomBlock } from "@/lib/types/database";
 import { reservationRevenue, reservationTax, sourceLabel } from "@/lib/revenue";
+import { isOtaBlockSummary } from "@/lib/ical/ota-block";
 
 type SearchParams = Promise<{ start?: string; end?: string; property?: string }>;
-type ReportReservation = Pick<Reservation, "id" | "room_id" | "requested_property_id" | "check_in_date" | "check_out_date" | "status" | "source" | "payment_method" | "special_notes">;
+type ReportReservation = Pick<Reservation, "id" | "room_id" | "requested_property_id" | "guest_name" | "check_in_date" | "check_out_date" | "status" | "source" | "payment_method" | "special_notes">;
 
 const yen = new Intl.NumberFormat("ja-JP", { style: "currency", currency: "JPY", maximumFractionDigits: 0 });
 
@@ -51,7 +52,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Sear
   const [{ data: properties }, { data: rooms }, { data: reservations }, { data: roomBlocks }] = await Promise.all([
     supabase.from("properties").select("*").order("display_order").returns<Property[]>(),
     supabase.from("rooms").select("*").order("display_order").returns<Room[]>(),
-    supabase.from("reservations").select("id, room_id, requested_property_id, check_in_date, check_out_date, status, source, payment_method, special_notes")
+    supabase.from("reservations").select("id, room_id, requested_property_id, guest_name, check_in_date, check_out_date, status, source, payment_method, special_notes")
       .neq("status", "cancelled").neq("status", "blocked").lt("check_in_date", format(endExclusive, "yyyy-MM-dd"))
       .gt("check_out_date", format(start, "yyyy-MM-dd")).returns<ReportReservation[]>(),
     supabase.from("room_blocks").select("*").eq("is_active", true).lte("start_date", format(end, "yyyy-MM-dd")).gte("end_date", format(start, "yyyy-MM-dd")).returns<RoomBlock[]>(),
@@ -62,6 +63,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Sear
   const scopedRooms = (rooms ?? []).filter((room) => selectedProperty === "all" || room.property_id === selectedProperty);
   const roomById = new Map((rooms ?? []).map((room) => [room.id, room]));
   const scopedReservations = (reservations ?? []).filter((row) => {
+    if (isOtaBlockSummary(row.guest_name)) return false;
     const propertyId = row.room_id ? roomById.get(row.room_id)?.property_id : row.requested_property_id;
     return selectedProperty === "all" || propertyId === selectedProperty;
   });

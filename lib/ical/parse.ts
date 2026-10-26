@@ -1,4 +1,5 @@
 import { extractVevents, icsValueToDateYmd } from "./parse-vevents";
+import { isOtaBlockSummary } from "./ota-block";
 
 export type ParsedReservation = {
   uid: string;
@@ -93,27 +94,6 @@ export function parseIcs(icsText: string): ParsedReservation[] {
   }
 
   return events;
-}
-
-/**
- * OTA が在庫クローズ／販売停止を表すために出す VEVENT を判定する。
- * 楽天・Airbnb 等は予約と同じ形式でブロックを出すため、SUMMARY で見分ける。
- */
-const OTA_BLOCK_SUMMARY_PATTERNS: RegExp[] = [
-  /not\s*available/i,
-  /\bblocked?\b/i,
-  /\bclosed?\b/i,
-  /stop\s*sale/i,
-  /unavailable/i,
-  /予約不可/,
-  /受付停止/,
-  /販売停止/,
-];
-
-function isOtaBlockSummary(summary: string): boolean {
-  const s = summary.trim();
-  if (!s) return false;
-  return OTA_BLOCK_SUMMARY_PATTERNS.some((re) => re.test(s));
 }
 
 // DESCRIPTION values with embedded literal "\n" tokens need normalization.
