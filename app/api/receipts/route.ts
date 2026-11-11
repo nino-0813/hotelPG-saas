@@ -4,7 +4,7 @@ import { sendMail } from "@/lib/gmail";
 import { getReceiptIssuer } from "@/lib/receipt-config";
 import type { ReceiptPdfData } from "@/lib/receipt-pdf";
 import { createEncryptedReceiptToken } from "@/lib/receipt-token";
-import { reservationRevenue, reservationTax } from "@/lib/revenue";
+import { reservationRevenue } from "@/lib/revenue";
 import { ACCOMMODATION_TAX_PER_GUEST_PER_NIGHT_JPY } from "@/lib/stripe/stripe-web-checkout-pricing";
 import { createRouteHandlerSupabaseClient } from "@/lib/supabase/route-handler";
 import type { PaymentMethod, Reservation } from "@/lib/types/database";
@@ -289,14 +289,14 @@ export async function POST(req: NextRequest) {
       .from("receipt_documents")
       .select("id", { count: "exact", head: true })
       .eq("reservation_id", reservationId);
-    const taxes = reservationTax(reservation);
     const calculatedAccommodationTax = accommodationTaxForReservation(reservation);
     const nonTaxableAmount = Math.min(calculatedAccommodationTax, amount);
     const taxableAmount = Math.max(amount - nonTaxableAmount, 0);
-    const taxAmount = Math.min(
-      taxes.consumption > 0 ? taxes.consumption : Math.floor(taxableAmount * 10 / 110),
-      taxableAmount,
-    );
+    // The receipt amount is tax-inclusive. Accommodation tax is non-taxable,
+    // so always remove it first and derive the included 10% consumption tax
+    // from the remaining taxable amount. Do not reuse a tax value saved in a
+    // reservation note because the receipt amount can be edited at issue time.
+    const taxAmount = Math.floor((taxableAmount * 10) / 110);
     const issuer = getReceiptIssuer();
     const issuedAt = new Date().toISOString();
     const number = receiptNumber();
