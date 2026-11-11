@@ -19,6 +19,7 @@ import {
   syncAll,
   syncCalendar,
   toggleCalendarEnabled,
+  updateCalendarUrl,
 } from "./actions";
 
 type Props = {
@@ -187,7 +188,7 @@ function AddForm({
       <Field
         label="ics URL"
         required
-        hint="楽天お宿: 「カレンダーエクスポート」をクリック → 表示されたURLをコピー"
+        hint="楽天お宿: 「カレンダーエクスポート」のURLをコピー。同じ部屋グループは既存URLを更新します。"
       >
         <input
           name="ics_url"
@@ -225,7 +226,7 @@ function AddForm({
           disabled={pending}
           className="rounded-md bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-neutral-800 disabled:opacity-50"
         >
-          {pending ? "追加中..." : "追加"}
+          {pending ? "登録中..." : "追加・更新"}
         </button>
       </div>
     </form>
@@ -245,6 +246,9 @@ function CalendarRow({
     lines: string[];
   } | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [editingUrl, setEditingUrl] = useState(false);
+  const [icsUrl, setIcsUrl] = useState(calendar.ics_url);
+  const [urlError, setUrlError] = useState<string | null>(null);
 
   const onSync = () => {
     setSyncDetail(null);
@@ -263,6 +267,22 @@ function CalendarRow({
   const onToggle = () => {
     startTransition(async () => {
       await toggleCalendarEnabled(calendar.id, !calendar.enabled);
+    });
+  };
+
+  const onSaveUrl = () => {
+    setUrlError(null);
+    startTransition(async () => {
+      const result = await updateCalendarUrl(calendar.id, icsUrl);
+      if (result.error) {
+        setUrlError(result.error);
+        return;
+      }
+      setEditingUrl(false);
+      setSyncDetail({
+        headline: "URLを更新しました",
+        lines: ["「同期」を押して予約の取り込みを確認してください。"],
+      });
     });
   };
 
@@ -297,9 +317,49 @@ function CalendarRow({
               </span>
             )}
           </div>
-          <div className="mt-1 truncate text-[11px] text-neutral-500">
-            {calendar.ics_url}
-          </div>
+          {editingUrl ? (
+            <div className="mt-2 space-y-2">
+              <label className="block text-xs font-medium text-neutral-700">
+                ics URL
+                <input
+                  type="url"
+                  value={icsUrl}
+                  onChange={(event) => setIcsUrl(event.target.value)}
+                  className="mt-1 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm font-normal shadow-sm focus:border-neutral-500 focus:outline-none focus:ring-1 focus:ring-neutral-400"
+                  autoFocus
+                />
+              </label>
+              {urlError ? (
+                <p className="text-xs text-red-700">{urlError}</p>
+              ) : null}
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={onSaveUrl}
+                  disabled={pending || !icsUrl.trim()}
+                  className="rounded-md bg-neutral-900 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+                >
+                  URLを保存
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIcsUrl(calendar.ics_url);
+                    setUrlError(null);
+                    setEditingUrl(false);
+                  }}
+                  disabled={pending}
+                  className="rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-xs"
+                >
+                  キャンセル
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="mt-1 truncate text-[11px] text-neutral-500">
+              {calendar.ics_url}
+            </div>
+          )}
           <div className="mt-1 flex flex-wrap gap-3 text-[11px] text-neutral-500">
             <span>{property?.name ?? "?"}</span>
             <span>
@@ -347,6 +407,17 @@ function CalendarRow({
         </div>
 
         <div className="flex shrink-0 flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setUrlError(null);
+              setEditingUrl((value) => !value);
+            }}
+            disabled={pending}
+            className="rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-xs hover:bg-neutral-50 disabled:opacity-50"
+          >
+            URLを編集
+          </button>
           <button
             type="button"
             onClick={onSync}

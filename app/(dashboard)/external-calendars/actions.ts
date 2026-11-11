@@ -33,17 +33,34 @@ export async function addCalendar(input: AddCalendarInput) {
   const supabase = await createClient();
   const ics_url = input.ics_url.trim();
   const external_id = deriveExternalId(ics_url);
+  const displayName = input.display_name?.trim();
 
-  const { error } = await supabase.from("external_calendars").insert({
+  // Rakuten can reissue an iCal URL while keeping the same room-group ID.
+  // In that case refresh the existing calendar instead of failing the unique
+  // (source, external_id) constraint. Omitting a blank display name preserves
+  // the existing label when an URL is refreshed.
+  const calendar = {
     source: input.source,
     external_id,
     ics_url,
     property_id: input.property_id,
     target_room_type: input.target_room_type,
-    display_name: input.display_name?.trim() || null,
+    ...(displayName ? { display_name: displayName } : {}),
     enabled: true,
-  });
-  if (error) return { error: error.message };
+    last_sync_status: null,
+    last_sync_error: null,
+  };
+  const { error } = await supabase
+    .from("external_calendars")
+    .upsert(calendar, { onConflict: "source,external_id" });
+  if (error) {
+    return {
+      error:
+        error.code === "23505"
+          ? "同じ外部カレンダーが登録済みです。既存の連携を確認してください。"
+          : error.message,
+    };
+  }
 
   revalidatePath("/external-calendars");
   return { ok: true };
@@ -56,6 +73,43 @@ export async function toggleCalendarEnabled(id: string, enabled: boolean) {
     .update({ enabled })
     .eq("id", id);
   if (error) return { error: error.message };
+  revalidatePath("/external-calendars");
+  return { ok: true };
+}
+
+export async function updateCalendarUrl(id: string, value: string) {
+  const supabase = await createClient();
+  const ics_url = value.trim();
+  let external_id: string;
+  try {
+    const parsed = new URL(ics_url);
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      return { error: "httpまたはhttpsのURLを入力してください" };
+    }
+    external_id = deriveExternalId(ics_url);
+  } catch {
+    return { error: "URLの形式を確認してください" };
+  }
+
+  const { error } = await supabase
+    .from("external_calendars")
+    .update({
+      ics_url,
+      external_id,
+      enabled: true,
+      last_sync_status: null,
+      last_sync_error: null,
+    })
+    .eq("id", id);
+  if (error) {
+    return {
+      error:
+        error.code === "23505"
+          ? "このURLは別の外部連携に登録済みです"
+          : error.message,
+    };
+  }
+
   revalidatePath("/external-calendars");
   return { ok: true };
 }
