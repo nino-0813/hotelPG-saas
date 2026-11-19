@@ -69,7 +69,7 @@ export function BulkNightlyRates({ rates, disabled, onApply }: Props) {
             <div>
               <label htmlFor={`${panelId}-mode`} className="text-sm font-medium text-neutral-800">設定方法</label>
               <select id={`${panelId}-mode`} className={fieldClass} value={mode} onChange={(event) => { setMode(event.target.value === "total" ? "total" : "nightly"); setAmount(""); }}>
-                <option value="nightly">1泊料金を入力</option>
+                <option value="nightly">1泊ごとの内訳を入力</option>
                 <option value="total">契約総額から配分</option>
               </select>
             </div>
@@ -93,10 +93,10 @@ export function BulkNightlyRates({ rates, disabled, onApply }: Props) {
             </div>
           ) : null}
           <div className="grid gap-3 sm:grid-cols-2">
-            <label className="text-sm font-medium text-neutral-800">{mode === "total" ? "予約全体の契約総額（朝食込み・円）" : "1泊料金（朝食込み・円）"}
+            <label className="text-sm font-medium text-neutral-800">{mode === "total" ? "予約全体の契約総額（朝食込み・円）" : "1泊の宿泊代（朝食抜き・円）"}
               <input inputMode="numeric" className={fieldClass} value={amount} onChange={(event) => setAmount(event.target.value)} onKeyDown={applyOnEnter} />
             </label>
-            <label className="text-sm font-medium text-neutral-800">1泊の朝食料金（円・任意）
+            <label className="text-sm font-medium text-neutral-800">1泊の朝食代（円・任意）
               <input inputMode="numeric" className={fieldClass} value={breakfast} placeholder="空欄なら今の内訳を維持" onChange={(event) => setBreakfast(event.target.value)} onKeyDown={applyOnEnter} />
             </label>
           </div>

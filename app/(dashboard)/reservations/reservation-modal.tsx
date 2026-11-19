@@ -35,7 +35,7 @@ import {
   reservationRevenue,
   withReservationAmounts,
 } from "@/lib/revenue";
-import { hotelToday, stayDates, sumNightlyRates, validateNightlyRates, type NightlyRate } from "@/lib/reservations/nightly-rates";
+import { hotelToday, nightlyRoomAmount, stayDates, sumNightlyRates, validateNightlyRates, type NightlyRate } from "@/lib/reservations/nightly-rates";
 
 function reservationSourceLabel(s: string | null | undefined): string {
   if (!s) return "—";
@@ -1480,9 +1480,10 @@ function EditReservationForm({
   const todayRate = rates.find((rate) => rate.date === today);
   const datesChanged = checkIn !== reservation.check_in_date || checkOut !== reservation.check_out_date;
 
-  function editRate(rate: NightlyRate, field: "amount" | "breakfast", value: string) {
-    const next = value === "" ? (field === "amount" ? null : 0) : Number(value);
-    applyRateUpdates([{ ...rate, [field]: next }]);
+  function editRate(rate: NightlyRate, field: "room" | "breakfast", value: string) {
+    const room = field === "room" ? (value === "" ? null : Number(value)) : nightlyRoomAmount(rate);
+    const breakfast = field === "breakfast" ? Number(value) : rate.breakfast;
+    applyRateUpdates([{ date: rate.date, breakfast, amount: room === null ? null : room + breakfast }]);
   }
 
   function applyRateUpdates(updates: NightlyRate[]) {
@@ -1722,25 +1723,32 @@ function EditReservationForm({
             </button>
           </div>
           {ratesOpen ? <div id={ratesId} className="border-t border-neutral-200 px-3 py-3 sm:px-4">
-            <p className="mb-3 text-sm text-neutral-700">宿泊料金には朝食料金を含めて入力します。</p>
+            <p className="mb-3 text-sm text-neutral-700">朝食代と宿泊代を入力すると、朝食込みの合計金額が自動で更新されます。</p>
             <BulkNightlyRates rates={rates} disabled={pending} onApply={applyRateUpdates} />
             <table className="w-full table-fixed text-left text-sm">
               <thead className="bg-neutral-50 text-neutral-700">
                 <tr>
-                  <th scope="col" className="w-[30%] p-2 font-medium">宿泊日</th>
-                  <th scope="col" className="w-[30%] p-2 font-medium">朝食料金</th>
-                  <th scope="col" className="p-2 font-medium">宿泊料金（朝食込み）</th>
+                  <th scope="col" className="w-[26%] px-1 py-2 font-medium sm:px-2">宿泊日</th>
+                  <th scope="col" className="w-[23%] px-1 py-2 font-medium sm:px-2">朝食代</th>
+                  <th scope="col" className="w-[25%] px-1 py-2 font-medium sm:px-2">宿泊代</th>
+                  <th scope="col" className="px-1 py-2 text-right font-medium sm:px-2">合計金額</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-neutral-200">
                 {rates.map((rate) => <tr key={rate.date}>
-                  <th scope="row" className="break-words px-2 py-2 font-medium tabular-nums">{rate.date.replaceAll("-", "/")}</th>
-                  <td className="px-1 py-2 sm:px-2"><input type="number" min={0} step={1} inputMode="numeric" aria-label={`${rate.date}の朝食料金`} value={rate.breakfast} onChange={(event) => editRate(rate, "breakfast", event.target.value)} className={`${inputCls} min-h-11 min-w-0 px-2 tabular-nums`} /></td>
-                  <td className="px-1 py-2 sm:px-2"><input type="number" min={0} step={1} inputMode="numeric" aria-label={`${rate.date}の宿泊料金`} value={rate.amount ?? ""} placeholder="未設定" onChange={(event) => editRate(rate, "amount", event.target.value)} className={`${inputCls} min-h-11 min-w-0 px-2 tabular-nums`} /></td>
+                  <th scope="row" className="break-words px-1 py-2 text-xs font-medium tabular-nums sm:px-2 sm:text-sm">{rate.date.replaceAll("-", "/")}</th>
+                  <td className="px-1 py-2 sm:px-2"><input type="number" min={0} step={1} inputMode="numeric" aria-label={`${rate.date}の朝食代`} value={rate.breakfast} onChange={(event) => editRate(rate, "breakfast", event.target.value)} className={nightlyAmountInputCls} /></td>
+                  <td className="px-1 py-2 sm:px-2"><input type="number" min={0} step={1} inputMode="numeric" aria-label={`${rate.date}の宿泊代`} value={nightlyRoomAmount(rate) ?? ""} placeholder="未設定" onChange={(event) => editRate(rate, "room", event.target.value)} className={nightlyAmountInputCls} /></td>
+                  <td className="break-words px-1 py-2 text-right font-medium tabular-nums sm:px-2">{rate.amount === null ? "未設定" : `${rate.amount.toLocaleString("ja-JP")}円`}</td>
                 </tr>)}
               </tbody>
               <tfoot className="border-t border-neutral-200 bg-neutral-50 font-semibold tabular-nums">
-                <tr><th scope="row" className="p-2">合計</th><td className="break-words p-2">{totals.breakfast.toLocaleString("ja-JP")}円</td><td className="break-words p-2">{rates.length > missing ? `${totals.amount.toLocaleString("ja-JP")}円` : "未設定"}</td></tr>
+                <tr>
+                  <th scope="row" className="px-1 py-2 sm:px-2">合計</th>
+                  <td className="break-words px-1 py-2 sm:px-2">{totals.breakfast.toLocaleString("ja-JP")}円</td>
+                  <td className="break-words px-1 py-2 sm:px-2">{rates.length > missing ? `${totals.room.toLocaleString("ja-JP")}円` : "未設定"}</td>
+                  <td className="break-words px-1 py-2 text-right sm:px-2">{rates.length > missing ? `${totals.amount.toLocaleString("ja-JP")}円` : "未設定"}</td>
+                </tr>
               </tfoot>
             </table>
             {estimated && !ratesEdited ? <button type="button" className={`${btnSecondary} mt-3 min-h-11`} onClick={() => setRatesEdited(true)}>この日別料金を使う</button> : null}
@@ -1945,6 +1953,7 @@ function StatusRow({ status }: { status: ReservationStatus }) {
 
 const inputCls =
   "w-full rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-neutral-900 focus:outline-none";
+const nightlyAmountInputCls = "min-h-11 w-full min-w-0 rounded-md border border-neutral-300 bg-white px-1 text-base tabular-nums shadow-sm [appearance:textfield] focus-visible:outline-2 focus-visible:outline-blue-700 sm:px-2 sm:text-sm [&::-webkit-inner-spin-button]:appearance-none";
 const btnPrimary =
   "rounded-md bg-neutral-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-neutral-800 disabled:opacity-50";
 const btnSecondary =

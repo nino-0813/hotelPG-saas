@@ -2,9 +2,14 @@ const dayMs = 86_400_000;
 
 export type NightlyRate = {
   date: string;
+  /** Saved nightly total, including breakfast. */
   amount: number | null;
   breakfast: number;
 };
+
+export function nightlyRoomAmount(rate: NightlyRate) {
+  return rate.amount === null ? null : rate.amount - rate.breakfast;
+}
 
 export function dateOrdinal(value: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return NaN;
@@ -57,7 +62,8 @@ export function sumNightlyRates(rates: NightlyRate[]) {
   return rates.reduce((sum, rate) => ({
     amount: sum.amount + (rate.amount ?? 0),
     breakfast: sum.breakfast + rate.breakfast,
-  }), { amount: 0, breakfast: 0 });
+    room: sum.room + (nightlyRoomAmount(rate) ?? 0),
+  }), { amount: 0, breakfast: 0, room: 0 });
 }
 
 export type BulkRateTarget =
@@ -67,6 +73,7 @@ export type BulkRateTarget =
 type BulkRateOptions = {
   target: BulkRateTarget;
   mode: "nightly" | "total";
+  /** Room-only in nightly mode, breakfast-inclusive in total mode. */
   amount: number;
   breakfast?: number;
 };
@@ -104,11 +111,14 @@ export function previewBulkRates(rates: NightlyRate[], { target, mode, amount, b
     return { error: "対象外の泊の料金だけで契約総額を超えています。金額または適用先を確認してください。" };
   }
 
-  const updates = selected.map((rate, index) => ({
-    date: rate.date,
-    amount: mode === "total" ? allocatedYen(amount - remainingTotals.amount, selected.length, index) : amount,
-    breakfast: breakfast ?? rate.breakfast,
-  }));
+  const updates = selected.map((rate, index) => {
+    const nightlyBreakfast = breakfast ?? rate.breakfast;
+    return {
+      date: rate.date,
+      amount: mode === "total" ? allocatedYen(amount - remainingTotals.amount, selected.length, index) : amount + nightlyBreakfast,
+      breakfast: nightlyBreakfast,
+    };
+  });
   const issue = validateNightlyRates(updates, selected.map((rate) => rate.date));
   if (issue) return { error: issue };
 
