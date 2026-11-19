@@ -24,6 +24,7 @@ import {
   type GuestEmailLanguage,
 } from "./actions";
 import { cancelReservation } from "@/app/actions/cancelReservation";
+import { BulkNightlyRates } from "./bulk-nightly-rates";
 import { CancellationNotice } from "@/app/reservation/cancel/cancellation-notice";
 import { summarizeMultipleSyncResults } from "@/lib/ical/sync-summary";
 import { roomTypeLabel } from "@/lib/room-type-labels";
@@ -1481,7 +1482,15 @@ function EditReservationForm({
 
   function editRate(rate: NightlyRate, field: "amount" | "breakfast", value: string) {
     const next = value === "" ? (field === "amount" ? null : 0) : Number(value);
-    setDraft((previous) => new Map(previous).set(rate.date, { ...rate, [field]: next }));
+    applyRateUpdates([{ ...rate, [field]: next }]);
+  }
+
+  function applyRateUpdates(updates: NightlyRate[]) {
+    setDraft((previous) => {
+      const updated = new Map(previous);
+      for (const rate of updates) updated.set(rate.date, rate);
+      return updated;
+    });
     setRatesEdited(true);
   }
 
@@ -1714,6 +1723,7 @@ function EditReservationForm({
           </div>
           {ratesOpen ? <div id={ratesId} className="border-t border-neutral-200 px-3 py-3 sm:px-4">
             <p className="mb-3 text-sm text-neutral-700">宿泊料金には朝食料金を含めて入力します。</p>
+            <BulkNightlyRates rates={rates} disabled={pending} onApply={applyRateUpdates} />
             <table className="w-full table-fixed text-left text-sm">
               <thead className="bg-neutral-50 text-neutral-700">
                 <tr>

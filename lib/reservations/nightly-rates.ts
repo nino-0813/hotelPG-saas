@@ -59,3 +59,67 @@ export function sumNightlyRates(rates: NightlyRate[]) {
     breakfast: sum.breakfast + rate.breakfast,
   }), { amount: 0, breakfast: 0 });
 }
+
+export type BulkRateTarget =
+  | { kind: "unset" | "all" }
+  | { kind: "range"; start: string; end: string };
+
+type BulkRateOptions = {
+  target: BulkRateTarget;
+  mode: "nightly" | "total";
+  amount: number;
+  breakfast?: number;
+};
+
+type BulkRatePreview =
+  | { error: string }
+  | { updates: NightlyRate[]; total: number; overwritten: number; unset: number };
+
+export function previewBulkRates(rates: NightlyRate[], { target, mode, amount, breakfast }: BulkRateOptions): BulkRatePreview {
+  if (!isYen(amount) || (breakfast !== undefined && !isYen(breakfast))) {
+    return { error: "料金は0円以上の整数で入力してください。" };
+  }
+
+  if (target.kind === "range" && (
+    !(dateOrdinal(target.start) <= dateOrdinal(target.end)) ||
+    target.start < (rates[0]?.date ?? "") ||
+    target.end > (rates.at(-1)?.date ?? "")
+  )) {
+    return { error: "宿泊日の範囲内で、開始日と終了日を指定してください。" };
+  }
+
+  const selected = rates.filter((rate) => {
+    if (target.kind === "range") return rate.date >= target.start && rate.date <= target.end;
+    return target.kind === "all" || rate.amount === null;
+  });
+  if (!selected.length) return { error: "対象の泊がありません。適用先を変更してください。" };
+
+  const selectedDates = new Set(selected.map((rate) => rate.date));
+  const remaining = rates.filter((rate) => !selectedDates.has(rate.date));
+  const remainingTotals = sumNightlyRates(remaining);
+  if (mode === "total" && remaining.some((rate) => rate.amount === null)) {
+    return { error: "契約総額を配分するには、未設定の泊をすべて対象に含めてください。" };
+  }
+  if (mode === "total" && remainingTotals.amount > amount) {
+    return { error: "対象外の泊の料金だけで契約総額を超えています。金額または適用先を確認してください。" };
+  }
+
+  const updates = selected.map((rate, index) => ({
+    date: rate.date,
+    amount: mode === "total" ? allocatedYen(amount - remainingTotals.amount, selected.length, index) : amount,
+    breakfast: breakfast ?? rate.breakfast,
+  }));
+  const issue = validateNightlyRates(updates, selected.map((rate) => rate.date));
+  if (issue) return { error: issue };
+
+  const updateTotals = sumNightlyRates(updates);
+  const total = remainingTotals.amount + updateTotals.amount;
+  const breakfastTotal = remainingTotals.breakfast + updateTotals.breakfast;
+  if (!isYen(total) || !isYen(breakfastTotal)) return { error: "合計金額が大きすぎます。" };
+
+  const overwritten = selected.filter((rate, index) => rate.amount !== null && (
+    rate.amount !== updates[index].amount || rate.breakfast !== updates[index].breakfast
+  )).length;
+  const unset = remaining.filter((rate) => rate.amount === null).length;
+  return { updates, total, overwritten, unset };
+}
