@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useId, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { format, parseISO } from "date-fns";
 import { ja } from "date-fns/locale";
@@ -30,9 +30,11 @@ import { roomTypeLabel } from "@/lib/room-type-labels";
 import {
   reservationBreakfastFee,
   reservationMemo,
+  reservationNightlyRates,
   reservationRevenue,
   withReservationAmounts,
 } from "@/lib/revenue";
+import { hotelToday, stayDates, sumNightlyRates, validateNightlyRates, type NightlyRate } from "@/lib/reservations/nightly-rates";
 
 function reservationSourceLabel(s: string | null | undefined): string {
   if (!s) return "—";
@@ -1462,13 +1464,44 @@ function EditReservationForm({
 }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [checkIn, setCheckIn] = useState(reservation.check_in_date);
+  const [checkOut, setCheckOut] = useState(reservation.check_out_date);
+  const [ratesOpen, setRatesOpen] = useState(false);
+  const [ratesEdited, setRatesEdited] = useState(false);
+  const [{ rates: initialRates, estimated }] = useState(() => reservationNightlyRates(reservation));
+  const [draft, setDraft] = useState(() => new Map(initialRates.map((rate) => [rate.date, rate])));
+  const ratesId = useId();
+  const dates = stayDates(checkIn, checkOut);
+  const rates = dates.map((date) => draft.get(date) ?? { date, amount: null, breakfast: 0 });
+  const totals = sumNightlyRates(rates);
+  const missing = rates.filter((rate) => rate.amount === null).length;
+  const today = hotelToday();
+  const todayRate = rates.find((rate) => rate.date === today);
+  const datesChanged = checkIn !== reservation.check_in_date || checkOut !== reservation.check_out_date;
+
+  function editRate(rate: NightlyRate, field: "amount" | "breakfast", value: string) {
+    const next = value === "" ? (field === "amount" ? null : 0) : Number(value);
+    setDraft((previous) => new Map(previous).set(rate.date, { ...rate, [field]: next }));
+    setRatesEdited(true);
+  }
 
   const handleSubmit = (formData: FormData) => {
     const checkInDate = String(formData.get("check_in_date"));
     const checkOutDate = String(formData.get("check_out_date"));
-    if (checkOutDate <= checkInDate) {
+    if (!dates.length) {
       setError("チェックアウト日はチェックイン日より後にしてください。");
       return;
+    }
+    const saveRates = ratesEdited || datesChanged;
+    if (saveRates) {
+      const issue = validateNightlyRates(rates, dates) ?? (datesChanged && missing && reservationRevenue(reservation) > 0
+        ? "日程を変更する場合は、新しい宿泊日すべての料金を入力してください。"
+        : null);
+      if (issue) {
+        setRatesOpen(true);
+        setError(issue);
+        return;
+      }
     }
 
     startTransition(async () => {
@@ -1477,6 +1510,8 @@ function EditReservationForm({
         const nextRoomId = String(formData.get("room_id") || "");
         const result = await updateReservation({
           id: reservation.id,
+          expectedUpdatedAt: reservation.updated_at,
+          nightlyRates: saveRates ? rates : undefined,
           room_id: nextRoomId,
           guest_name: String(formData.get("guest_name")),
           guest_phone: String(formData.get("guest_phone") || ""),
@@ -1488,11 +1523,7 @@ function EditReservationForm({
           check_out_time: String(formData.get("check_out_time") || "10:00"),
           payment_method: String(formData.get("payment_method")) as PaymentMethod,
           smart_key_code: String(formData.get("smart_key_code") || ""),
-          special_notes: withReservationAmounts(
-            String(formData.get("special_notes") || ""),
-            Number(formData.get("revenue_amount")) || 0,
-            Number(formData.get("breakfast_fee")) || 0,
-          ),
+          special_notes: String(formData.get("special_notes") || ""),
           source: String(formData.get("source") || ""),
         });
         if (result.error) setError(result.error);
@@ -1581,7 +1612,8 @@ function EditReservationForm({
             <input
               name="check_in_date"
               type="date"
-              defaultValue={reservation.check_in_date}
+              value={checkIn}
+              onChange={(event) => setCheckIn(event.target.value)}
               required
               className={inputCls}
             />
@@ -1601,7 +1633,8 @@ function EditReservationForm({
             <input
               name="check_out_date"
               type="date"
-              defaultValue={reservation.check_out_date}
+              value={checkOut}
+              onChange={(event) => setCheckOut(event.target.value)}
               required
               className={inputCls}
             />
@@ -1657,35 +1690,52 @@ function EditReservationForm({
           />
         </Field>
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Field label="朝食料金（税込）">
-            <input
-              name="breakfast_fee"
-              type="number"
-              min={0}
-              step={1}
-              inputMode="numeric"
-              defaultValue={reservationBreakfastFee(reservation) || ""}
-              placeholder="例：2000"
-              className={inputCls}
-            />
-          </Field>
-          <Field label="合計宿泊料金（税込）">
-            <input
-              name="revenue_amount"
-              type="number"
-              min={0}
-              step={1}
-              inputMode="numeric"
-              defaultValue={reservationRevenue(reservation) || ""}
-              placeholder="例：18000"
-              className={inputCls}
-            />
-          </Field>
-        </div>
-        <p className="-mt-2 text-xs text-neutral-500">
-          合計宿泊料金には朝食料金を含めて入力します。Stripe以外の予約も売上集計に反映されます。
-        </p>
+        <section className="rounded-lg border border-neutral-200" aria-label="宿泊料金">
+          <div className="space-y-3 p-3 sm:p-4">
+            <dl className="grid grid-cols-2 gap-3">
+              <div>
+                <dt className="text-sm font-medium text-neutral-700">当日宿泊料金（税込）</dt>
+                <dd className="mt-1 font-semibold tabular-nums">
+                  {todayRate?.amount != null ? `${todayRate.amount.toLocaleString("ja-JP")}円` : todayRate ? "未設定" : "対象外"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-sm font-medium text-neutral-700">合計宿泊料金（税込）</dt>
+                <dd className="mt-1 font-semibold tabular-nums" aria-live="polite">
+                  {rates.length > missing ? `${totals.amount.toLocaleString("ja-JP")}円` : "未設定"}
+                </dd>
+              </div>
+            </dl>
+            {estimated && !ratesEdited ? <p className="text-sm text-amber-900">既存の総額を泊数で仮配分しています。日別の金額を入力して保存すると確定します。</p> : null}
+            {missing > 0 ? <p className="text-sm text-neutral-700">料金未設定：{missing}泊</p> : null}
+            <button type="button" className={`${btnSecondary} min-h-11`} aria-expanded={ratesOpen} aria-controls={ratesId} disabled={!dates.length} onClick={() => setRatesOpen(!ratesOpen)}>
+              {ratesOpen ? "日ごとの料金を閉じる" : `日ごと宿泊料金を設定（${dates.length}泊）`}
+            </button>
+          </div>
+          {ratesOpen ? <div id={ratesId} className="border-t border-neutral-200 px-3 py-3 sm:px-4">
+            <p className="mb-3 text-sm text-neutral-700">宿泊料金には朝食料金を含めて入力します。</p>
+            <table className="w-full table-fixed text-left text-sm">
+              <thead className="bg-neutral-50 text-neutral-700">
+                <tr>
+                  <th scope="col" className="w-[30%] p-2 font-medium">宿泊日</th>
+                  <th scope="col" className="w-[30%] p-2 font-medium">朝食料金</th>
+                  <th scope="col" className="p-2 font-medium">宿泊料金（朝食込み）</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-neutral-200">
+                {rates.map((rate) => <tr key={rate.date}>
+                  <th scope="row" className="break-words px-2 py-2 font-medium tabular-nums">{rate.date.replaceAll("-", "/")}</th>
+                  <td className="px-1 py-2 sm:px-2"><input type="number" min={0} step={1} inputMode="numeric" aria-label={`${rate.date}の朝食料金`} value={rate.breakfast} onChange={(event) => editRate(rate, "breakfast", event.target.value)} className={`${inputCls} min-h-11 min-w-0 px-2 tabular-nums`} /></td>
+                  <td className="px-1 py-2 sm:px-2"><input type="number" min={0} step={1} inputMode="numeric" aria-label={`${rate.date}の宿泊料金`} value={rate.amount ?? ""} placeholder="未設定" onChange={(event) => editRate(rate, "amount", event.target.value)} className={`${inputCls} min-h-11 min-w-0 px-2 tabular-nums`} /></td>
+                </tr>)}
+              </tbody>
+              <tfoot className="border-t border-neutral-200 bg-neutral-50 font-semibold tabular-nums">
+                <tr><th scope="row" className="p-2">合計</th><td className="break-words p-2">{totals.breakfast.toLocaleString("ja-JP")}円</td><td className="break-words p-2">{rates.length > missing ? `${totals.amount.toLocaleString("ja-JP")}円` : "未設定"}</td></tr>
+              </tfoot>
+            </table>
+            {estimated && !ratesEdited ? <button type="button" className={`${btnSecondary} mt-3 min-h-11`} onClick={() => setRatesEdited(true)}>この日別料金を使う</button> : null}
+          </div> : null}
+        </section>
 
         <Field label="特記事項">
           <textarea

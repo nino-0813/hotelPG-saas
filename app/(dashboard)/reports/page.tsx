@@ -1,12 +1,12 @@
 import { addDays, differenceInCalendarDays, format, parseISO } from "date-fns";
 import { redirect } from "next/navigation";
 import { getCachedSupabaseAuth } from "@/lib/supabase/server";
-import type { Property, Reservation, Room, RoomBlock } from "@/lib/types/database";
-import { reservationRevenue, reservationTax, sourceLabel } from "@/lib/revenue";
-import { isOtaBlockSummary } from "@/lib/ical/ota-block";
+import type { Property, Room, RoomBlock } from "@/lib/types/database";
+import { sourceLabel } from "@/lib/revenue";
+import { dateOrdinal, hotelToday } from "@/lib/reservations/nightly-rates";
+import { loadSalesReservations, reportPropertyId, salesInPeriod, type SalesReservation } from "@/lib/sales-report";
 
 type SearchParams = Promise<{ start?: string; end?: string; property?: string }>;
-type ReportReservation = Pick<Reservation, "id" | "room_id" | "requested_property_id" | "guest_name" | "check_in_date" | "check_out_date" | "status" | "source" | "payment_method" | "special_notes">;
 
 const yen = new Intl.NumberFormat("ja-JP", { style: "currency", currency: "JPY", maximumFractionDigits: 0 });
 
@@ -24,7 +24,7 @@ function availableNights(rooms: Room[], start: Date, days: number, blocks: RoomB
   return total;
 }
 
-function soldNights(row: ReportReservation, start: Date, endExclusive: Date, blocks: RoomBlock[]) {
+function soldNights(row: SalesReservation, start: Date, endExclusive: Date, blocks: RoomBlock[]) {
   const arrival = parseISO(row.check_in_date) > start ? parseISO(row.check_in_date) : start;
   const departure = parseISO(row.check_out_date) < endExclusive ? parseISO(row.check_out_date) : endExclusive;
   let total = 0;
@@ -41,62 +41,67 @@ export default async function ReportsPage({ searchParams }: { searchParams: Sear
   if (staff?.role !== "admin") redirect("/rooms");
 
   const params = await searchParams;
-  const today = new Date();
-  const defaultStart = new Date(today.getFullYear(), today.getMonth(), 1);
-  const start = params.start ? parseISO(params.start) : defaultStart;
-  const requestedEnd = params.end ? parseISO(params.end) : today;
-  const end = requestedEnd < start ? start : requestedEnd;
+  const today = hotelToday();
+  const startDate = params.start && Number.isFinite(dateOrdinal(params.start)) ? params.start : `${today.slice(0, 7)}-01`;
+  const requestedEnd = params.end && Number.isFinite(dateOrdinal(params.end)) ? params.end : today;
+  const endDate = requestedEnd < startDate ? startDate : requestedEnd;
+  const start = parseISO(startDate);
+  const end = parseISO(endDate);
   const endExclusive = addDays(end, 1);
   const days = Math.max(1, differenceInCalendarDays(endExclusive, start));
 
-  const [{ data: properties }, { data: rooms }, { data: reservations }, { data: roomBlocks }] = await Promise.all([
+  const [propertiesResult, roomsResult, salesResult, blocksResult] = await Promise.all([
     supabase.from("properties").select("*").order("display_order").returns<Property[]>(),
     supabase.from("rooms").select("*").order("display_order").returns<Room[]>(),
-    supabase.from("reservations").select("id, room_id, requested_property_id, guest_name, check_in_date, check_out_date, status, source, payment_method, special_notes")
-      .neq("status", "cancelled").neq("status", "blocked").lt("check_in_date", format(endExclusive, "yyyy-MM-dd"))
-      .gt("check_out_date", format(start, "yyyy-MM-dd")).returns<ReportReservation[]>(),
-    supabase.from("room_blocks").select("*").eq("is_active", true).lte("start_date", format(end, "yyyy-MM-dd")).gte("end_date", format(start, "yyyy-MM-dd")).returns<RoomBlock[]>(),
+    loadSalesReservations(supabase, startDate, endDate),
+    supabase.from("room_blocks").select("*").eq("is_active", true).lte("start_date", endDate).gte("end_date", startDate).returns<RoomBlock[]>(),
   ]);
+  if ([propertiesResult, roomsResult, salesResult, blocksResult].some((result) => result.error)) {
+    return <main className="mx-auto max-w-7xl p-6"><h1 className="text-2xl font-semibold">売上レポート・稼働率分析</h1><p className="mt-4 text-red-800" role="alert">売上データを読み込めませんでした。時間をおいて画面を更新してください。</p></main>;
+  }
+
+  const { data: properties } = propertiesResult;
+  const { data: rooms } = roomsResult;
+  const { reservations } = salesResult;
+  const { data: roomBlocks } = blocksResult;
 
   const allProperties = properties ?? [];
   const selectedProperty = params.property && allProperties.some((p) => p.id === params.property) ? params.property : "all";
   const scopedRooms = (rooms ?? []).filter((room) => selectedProperty === "all" || room.property_id === selectedProperty);
   const roomById = new Map((rooms ?? []).map((room) => [room.id, room]));
-  const scopedReservations = (reservations ?? []).filter((row) => {
-    if (isOtaBlockSummary(row.guest_name)) return false;
-    const propertyId = row.room_id ? roomById.get(row.room_id)?.property_id : row.requested_property_id;
-    return selectedProperty === "all" || propertyId === selectedProperty;
-  });
+  const scopedReservations = reservations.filter((row) => selectedProperty === "all" || reportPropertyId(row, roomById) === selectedProperty);
+  const sales = scopedReservations.map((row) => ({ row, ...salesInPeriod(row, startDate, endDate) }));
 
   const activeBlocks = roomBlocks ?? [];
   const soldRoomNights = scopedReservations.reduce((sum, row) => sum + soldNights(row, start, endExclusive, activeBlocks), 0);
   const availableRoomNights = availableNights(scopedRooms, start, days, activeBlocks);
   const occupancy = availableRoomNights ? Math.min(100, soldRoomNights / availableRoomNights * 100) : 0;
-  const totalSales = scopedReservations.reduce((sum, row) => sum + reservationRevenue(row), 0);
-  const taxTotal = scopedReservations.reduce((sum, row) => sum + reservationTax(row).total, 0);
+  const totalSales = sales.reduce((sum, row) => sum + row.amount, 0);
+  const taxTotal = sales.reduce((sum, row) => sum + row.lodgingTax + row.consumptionTax, 0);
+  const estimatedCount = sales.filter((row) => row.estimated).length;
+  const missingNights = sales.reduce((sum, row) => sum + row.missing, 0);
   const adr = soldRoomNights ? Math.round(totalSales / soldRoomNights) : 0;
 
   const propertyRows = allProperties.filter((p) => selectedProperty === "all" || p.id === selectedProperty).map((property) => {
     const propertyRooms = scopedRooms.filter((room) => room.property_id === property.id);
-    const ids = new Set(propertyRooms.map((room) => room.id));
-    const rows = scopedReservations.filter((row) => (row.room_id && ids.has(row.room_id)) || row.requested_property_id === property.id);
+    const rows = scopedReservations.filter((row) => reportPropertyId(row, roomById) === property.id);
     const sold = rows.reduce((sum, row) => sum + soldNights(row, start, endExclusive, activeBlocks), 0);
     const capacity = availableNights(propertyRooms, start, days, activeBlocks);
     return { property, bookings: rows.length, sold, capacity, rate: capacity ? Math.min(100, sold / capacity * 100) : 0 };
   });
 
-  const sources = Array.from(scopedReservations.reduce((map, row) => {
+  const sources = Array.from(sales.reduce((map, { row, amount }) => {
     const key = sourceLabel(row.source);
     const current = map.get(key) ?? { count: 0, sales: 0 };
     current.count += 1;
-    current.sales += reservationRevenue(row);
+    current.sales += amount;
     map.set(key, current);
     return map;
   }, new Map<string, { count: number; sales: number }>()).entries()).sort((a, b) => b[1].sales - a[1].sales);
 
   return <main className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:py-8">
     <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-      <div><p className="text-sm font-medium text-blue-700">売上・精算</p><h1 className="mt-1 text-2xl font-semibold tracking-tight text-neutral-950">売上レポート・稼働率分析</h1><p className="mt-2 text-sm text-neutral-500">Stripe・楽天・電話・現地予約を販売経路別に確認できます。</p><a href={`/api/reports/csv?start=${format(start, "yyyy-MM-dd")}&end=${format(end, "yyyy-MM-dd")}`} className="mt-3 inline-flex min-h-11 items-center rounded-lg border border-neutral-300 bg-white px-4 text-sm font-semibold hover:bg-neutral-50">CSVを出力</a></div>
+      <div><p className="text-sm font-medium text-blue-700">売上・精算</p><h1 className="mt-1 text-2xl font-semibold tracking-tight text-neutral-950">売上レポート・稼働率分析</h1><p className="mt-2 text-sm text-neutral-500">Stripe・楽天・電話・現地予約を販売経路別に確認できます。</p><a href={`/api/reports/csv?${new URLSearchParams({ start: startDate, end: endDate, property: selectedProperty })}`} className="mt-3 inline-flex min-h-11 items-center rounded-lg border border-neutral-300 bg-white px-4 text-sm font-semibold hover:bg-neutral-50">CSVを出力</a></div>
       <form className="grid gap-3 rounded-xl border border-neutral-200 bg-white p-4 shadow-sm sm:grid-cols-4" aria-label="レポート条件">
         <label className="text-xs font-medium text-neutral-600">開始日<input name="start" type="date" defaultValue={format(start, "yyyy-MM-dd")} className="mt-1 block min-h-11 w-full rounded-lg border border-neutral-300 px-3 text-sm" /></label>
         <label className="text-xs font-medium text-neutral-600">終了日<input name="end" type="date" defaultValue={format(end, "yyyy-MM-dd")} className="mt-1 block min-h-11 w-full rounded-lg border border-neutral-300 px-3 text-sm" /></label>
@@ -106,13 +111,15 @@ export default async function ReportsPage({ searchParams }: { searchParams: Sear
     </div>
 
     <section className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="主要指標">
-      <Metric label="売上合計" value={yen.format(totalSales)} hint={`${scopedReservations.length}件・全販売経路`} />
+      <Metric label="売上合計" value={yen.format(totalSales)} hint={`${scopedReservations.length}件・期間内の宿泊分`} />
       <Metric label="ADR（平均客室単価）" value={yen.format(adr)} hint="売上 ÷ 利用室泊" />
       <Metric label="稼働率" value={`${occupancy.toFixed(1)}%`} hint={`${soldRoomNights} / ${availableRoomNights} 室泊`} />
-      <Metric label="税金内訳" value={yen.format(taxTotal)} hint="備考に記録された宿泊税・消費税" />
+      <Metric label="税金内訳" value={yen.format(taxTotal)} hint="備考の宿泊税・消費税を泊数で配分" />
     </section>
 
-    <p className="mt-3 text-xs leading-5 text-neutral-500">Stripe以外の金額は予約詳細の「編集」から売上金額を入力できます。稼働率は期間内の利用室泊数 ÷ 販売可能室泊数、ADRは売上合計 ÷ 利用室泊数です。</p>
+    <p className="mt-3 text-xs leading-5 text-neutral-600">売上は期間内の宿泊日ごとに集計しています。日別料金は予約詳細の「編集」から入力できます。</p>
+    {estimatedCount > 0 ? <p className="mt-1 text-sm text-amber-900">日別料金の未確定予約 {estimatedCount}件は、予約総額を泊数で仮配分しています。</p> : null}
+    {missingNights > 0 ? <p className="mt-1 text-sm text-amber-900">料金未設定の {missingNights}泊は、売上合計に含まれていません。</p> : null}
 
     <section className="mt-8 grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(260px,1fr)]">
       <div className="overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm"><div className="border-b border-neutral-200 px-5 py-4"><h2 className="font-semibold text-neutral-950">施設別稼働率</h2></div><div className="overflow-x-auto"><table className="w-full min-w-[620px] text-left text-sm"><thead className="bg-neutral-50 text-xs text-neutral-500"><tr><th className="px-5 py-3 font-medium">施設</th><th className="px-4 py-3 text-right font-medium">予約数</th><th className="px-4 py-3 text-right font-medium">利用室泊</th><th className="px-5 py-3 font-medium">稼働率</th></tr></thead><tbody className="divide-y divide-neutral-100">{propertyRows.map(({ property, bookings, sold, capacity, rate }) => <tr key={property.id}><td className="px-5 py-4 font-medium">{property.name}</td><td className="px-4 py-4 text-right tabular-nums">{bookings}</td><td className="px-4 py-4 text-right tabular-nums">{sold} / {capacity}</td><td className="px-5 py-4"><div className="flex items-center gap-3"><div className="h-2 flex-1 overflow-hidden rounded-full bg-neutral-100"><div className="h-full rounded-full bg-blue-600" style={{ width: `${rate}%` }} /></div><span className="w-14 text-right font-medium tabular-nums">{rate.toFixed(1)}%</span></div></td></tr>)}</tbody></table></div></div>

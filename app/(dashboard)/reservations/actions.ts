@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { sendMail } from "@/lib/gmail";
 import { buildReservationConfirmedEmail } from "@/lib/mail/reservation-confirmed";
+import { reservationBreakfastFee, reservationRevenue, withReservationAmounts } from "@/lib/revenue";
+import { dateOrdinal, stayDates, sumNightlyRates, validateNightlyRates, type NightlyRate } from "@/lib/reservations/nightly-rates";
 import { createClient } from "@/lib/supabase/server";
 import type {
   PaymentMethod,
@@ -80,20 +82,29 @@ export async function createReservation(input: CreateReservationInput) {
 
 export type UpdateReservationInput = Partial<CreateReservationInput> & {
   id: string;
+  expectedUpdatedAt?: string;
+  nightlyRates?: NightlyRate[];
 };
+
+const editableReservationFields = [
+  "room_id", "guest_name", "guest_phone", "guest_email", "guest_count", "check_in_date", "check_in_time",
+  "check_out_date", "check_out_time", "payment_method", "smart_key_code", "special_notes", "source",
+] as const satisfies ReadonlyArray<keyof CreateReservationInput>;
 
 export async function updateReservation(input: UpdateReservationInput) {
   const supabase = await createClient();
-  const { id, ...rest } = input;
+  const { id, expectedUpdatedAt, nightlyRates, ...rest } = input;
+  const changedError = "編集中に予約が更新されました。画面を更新してから入力し直してください。";
 
   const { data: current, error: fetchError } = await supabase
     .from("reservations")
-    .select("id, room_id, check_in_date, check_out_date, status")
+    .select("id, room_id, check_in_date, check_out_date, status, updated_at, special_notes, nightly_rates")
     .eq("id", id)
     .maybeSingle();
 
   if (fetchError) return { error: `予約の読み込みに失敗しました: ${fetchError.message}` };
   if (!current) return { error: "予約が見つかりません。画面を更新してやり直してください。" };
+  if (expectedUpdatedAt && expectedUpdatedAt !== current.updated_at) return { error: changedError };
 
   const guestName = input.guest_name?.trim();
   if (input.guest_name !== undefined && !guestName) {
@@ -111,8 +122,19 @@ export async function updateReservation(input: UpdateReservationInput) {
   const nextCheckIn = input.check_in_date ?? current.check_in_date;
   const nextCheckOut = input.check_out_date ?? current.check_out_date;
 
-  if (nextCheckOut <= nextCheckIn) {
+  if (!(dateOrdinal(nextCheckOut) > dateOrdinal(nextCheckIn))) {
     return { error: "チェックアウト日はチェックイン日より後にしてください。" };
+  }
+
+  const datesChanged = nextCheckIn !== current.check_in_date || nextCheckOut !== current.check_out_date;
+  if (nightlyRates !== undefined) {
+    const issue = validateNightlyRates(nightlyRates, stayDates(nextCheckIn, nextCheckOut));
+    if (issue) return { error: issue };
+    if (datesChanged && reservationRevenue(current) > 0 && nightlyRates.some((rate) => rate.amount === null)) {
+      return { error: "日程を変更する場合は、新しい宿泊日すべての料金を入力してください。" };
+    }
+  } else if (datesChanged) {
+    return { error: "日程を変更する場合は、日ごとの宿泊料金も確認してください。" };
   }
 
   if (nextRoomId && current.status !== "cancelled") {
@@ -139,7 +161,8 @@ export async function updateReservation(input: UpdateReservationInput) {
   }
 
   const payload: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(rest)) {
+  for (const k of editableReservationFields) {
+    const v = rest[k];
     if (v === undefined) continue;
     if (typeof v === "string") {
       payload[k] = v.trim() || null;
@@ -148,10 +171,21 @@ export async function updateReservation(input: UpdateReservationInput) {
     }
   }
 
+  const totals = nightlyRates === undefined
+    ? { amount: reservationRevenue(current), breakfast: reservationBreakfastFee(current) }
+    : sumNightlyRates(nightlyRates);
+  if (rest.special_notes !== undefined || nightlyRates !== undefined) {
+    payload.special_notes = withReservationAmounts(rest.special_notes ?? current.special_notes ?? "", totals.amount, totals.breakfast) || null;
+  }
+  if (nightlyRates !== undefined) {
+    payload.nightly_rates = nightlyRates.map(({ date, amount, breakfast }) => ({ date, amount, breakfast }));
+  }
+
   const { data: updated, error } = await supabase
     .from("reservations")
     .update(payload)
     .eq("id", id)
+    .eq("updated_at", current.updated_at)
     .select("id")
     .maybeSingle();
 
@@ -169,7 +203,7 @@ export async function updateReservation(input: UpdateReservationInput) {
     return { error: `保存に失敗しました: ${error.message}` };
   }
   if (!updated) {
-    return { error: "保存できませんでした。権限または予約の状態を確認してください。" };
+    return { error: changedError };
   }
 
   revalidatePath("/reservations");

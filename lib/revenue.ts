@@ -1,4 +1,7 @@
 import type { Reservation } from "@/lib/types/database";
+import { allocatedYen, isYen, stayDates, sumNightlyRates, type NightlyRate } from "./reservations/nightly-rates";
+
+type RateReservation = Pick<Reservation, "special_notes" | "nightly_rates" | "check_in_date" | "check_out_date">;
 
 export function sourceLabel(source: string | null | undefined) {
   const value = (source ?? "").toLowerCase();
@@ -19,10 +22,10 @@ function firstAmount(note: string, patterns: RegExp[]) {
     const match = note.match(pattern);
     if (match) return Number(match[1].replaceAll(",", ""));
   }
-  return 0;
+  return null;
 }
 
-export function reservationRevenue(row: Pick<Reservation, "special_notes">) {
+function legacyRevenue(row: Pick<Reservation, "special_notes">) {
   const note = (row.special_notes ?? "").replace(
     /^朝食料金:\s*[¥￥]?\s*[0-9,]+円?\s*\n?/gm,
     "",
@@ -36,12 +39,50 @@ export function reservationRevenue(row: Pick<Reservation, "special_notes">) {
   ]);
 }
 
+export function reservationRevenue(row: Pick<Reservation, "special_notes"> & Partial<RateReservation>) {
+  const saved = savedRatesForStay(row);
+  return saved ? sumNightlyRates(saved).amount : (legacyRevenue(row) ?? 0);
+}
+
 export function reservationBreakfastFee(
-  row: Pick<Reservation, "special_notes">,
+  row: Pick<Reservation, "special_notes"> & Partial<RateReservation>,
 ) {
+  const saved = savedRatesForStay(row);
+  return saved ? sumNightlyRates(saved).breakfast : legacyBreakfastFee(row);
+}
+
+function legacyBreakfastFee(row: Pick<Reservation, "special_notes">) {
   return firstAmount(row.special_notes ?? "", [
     /朝食料金:\s*[¥￥]?\s*([0-9,]+)円?/,
-  ]);
+  ]) ?? 0;
+}
+
+function savedRatesForStay(row: Partial<RateReservation>) {
+  if (!Array.isArray(row.nightly_rates)) return null;
+  return row.nightly_rates.filter((rate) =>
+    (!row.check_in_date || rate.date >= row.check_in_date) &&
+    (!row.check_out_date || rate.date < row.check_out_date),
+  );
+}
+
+export function reservationNightlyRates(row: RateReservation): { rates: NightlyRate[]; estimated: boolean } {
+  const dates = stayDates(row.check_in_date, row.check_out_date);
+  const saved = savedRatesForStay(row);
+  if (saved) {
+    const byDate = new Map(saved.map((rate) => [rate.date, rate]));
+    return { rates: dates.map((date) => byDate.get(date) ?? { date, amount: null, breakfast: 0 }), estimated: false };
+  }
+
+  const total = legacyRevenue(row);
+  const breakfast = legacyBreakfastFee(row);
+  return {
+    rates: dates.map((date, index) => ({
+      date,
+      amount: isYen(total) ? allocatedYen(total, dates.length, index) : null,
+      breakfast: isYen(breakfast) ? allocatedYen(breakfast, dates.length, index) : 0,
+    })),
+    estimated: dates.length > 1 && (isYen(total) || breakfast > 0),
+  };
 }
 
 export function reservationMemo(row: Pick<Reservation, "special_notes">) {
@@ -79,7 +120,7 @@ export function withRevenueAmount(note: string, amount: number) {
 
 export function reservationTax(row: Pick<Reservation, "special_notes">) {
   const note = row.special_notes ?? "";
-  const lodging = firstAmount(note, [/宿泊税:\s*[¥￥]?\s*([0-9,]+)円?/]);
-  const consumption = firstAmount(note, [/消費税:\s*[¥￥]?\s*([0-9,]+)円?/]);
+  const lodging = firstAmount(note, [/宿泊税:\s*[¥￥]?\s*([0-9,]+)円?/]) ?? 0;
+  const consumption = firstAmount(note, [/消費税:\s*[¥￥]?\s*([0-9,]+)円?/]) ?? 0;
   return { lodging, consumption, total: lodging + consumption };
 }

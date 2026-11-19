@@ -1,3 +1,5 @@
+import type { NightlyRate } from "../reservations/nightly-rates";
+
 export type RoomType =
   | "family"
   | "single"
@@ -63,6 +65,7 @@ export type Reservation = {
   payment_method: PaymentMethod;
   smart_key_code: string | null;
   special_notes: string | null;
+  nightly_rates?: NightlyRate[] | null;
   source: string | null;
   status: ReservationStatus;
   external_uid: string | null;
